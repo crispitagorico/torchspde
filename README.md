@@ -1,1 +1,1 @@
-# Neural-PDEs
+# Neural-SPDEs
