@@ -41,7 +41,7 @@ def navier_stokes_2d(w0, dW_sampler, visc, T, delta_t=1e-4, record_steps=1):
     #The forcing is already in Fourier space
     # f_h = torch.rfft(f, 2, normalized=False, onesided=False)
     dW_h = dW_sampler.sampledW(w0.shape[0], delta_t, iFspace=True)
-    f_h = sqrt(visc)*dW_h/delta_t
+    f_h = math.sqrt(visc)*dW_h/delta_t
     #If same forcing for the whole batch
     # if len(f_h.size()) < len(w_h.size()):
         # f_h = torch.unsqueeze(f_h, 0)
