@@ -1,6 +1,7 @@
 #TODO: make it compatible with torch version
 import torch
 import math
+import numpy as np
 
 import matplotlib.pyplot as plt
 import matplotlib
@@ -13,17 +14,20 @@ class WienerInc(object):
     def __init__(self, a=1, J=256, alpha=0.05, device=None):
 
         self.device = device
+        self.J = J 
+        self.alpha = alpha 
+        self.a = a 
 
         k_max = J//2
 
         wavenumers = torch.cat((torch.arange(start=0, end=k_max, step=1, device=device), \
-                                torch.arange(start=-k_max, end=0, step=1, device=device)), 0).repeat(size,1)
+                                torch.arange(start=-k_max, end=0, step=1, device=device)), 0).repeat(J,1)
 
         k_x = wavenumers.transpose(0,1)
         k_y = wavenumers
 
-        lambdax = k_x * 2 * pi / a
-        lambday = k_y * 2 * pi / a
+        lambdax = k_x * 2 * np.pi / a
+        lambday = k_y * 2 * np.pi / a
 
 
         self.sqrt_eig = np.exp(- alpha * (lambdax ** 2 + lambday ** 2) / 2)
@@ -32,12 +36,12 @@ class WienerInc(object):
 
     def sampledW(self, N, dt, iFspace=False):
 
-        coeff = self.sqrt_eig * sqrt(dt) * J * J / sqrt(a*a)
+        coeff = self.sqrt_eig * np.sqrt(dt) * self.J * self.J / np.sqrt(self.a*self.a)
         
-        nn = torch.randn(N, J, J, 2, device=self.device)
+        nn = torch.randn(N, self.J, self.J, 2, device=self.device)
 
-        fft_coeff_real = self.coeff*nn[...,0]
-        fft_coeff_imag = self.coeff*nn[...,1]
+        fft_coeff_real = coeff[None,:,:]*nn[...,0]
+        fft_coeff_imag = coeff[None,:,:]*nn[...,1]
 
         fft_coeff = torch.stack([fft_coeff_real,fft_coeff_imag],dim=-1)
 
@@ -45,19 +49,19 @@ class WienerInc(object):
             return fft_coeff
         else:
 
-            dW_2copies = torch.ifftn(torch.view_as_complex(fft_coeff), dim=[1,2])
+            dW_2copies = torch.fft.ifftn(torch.view_as_complex(fft_coeff), dim=[1,2])
             dW = dW_2copies[...,0]  # only need one copy of dW
 
             return dW
 
     def sampleseriessdW(self, N, T, dt, iFspace=False):
 
-        coeff = self.sqrt_eig * sqrt(dt) * J * J / sqrt(a*a)
+        coeff = self.sqrt_eig * np.sqrt(dt) * self.J * self.J / np.sqrt(self.a*self.a)
         
-        nn = torch.randn(N, J, J, T, 2, device=self.device)
+        nn = torch.randn(N, self.J, self.J, T, 2, device=self.device)
 
-        fft_coeff_real = self.coeff*nn[...,0]
-        fft_coeff_imag = self.coeff*nn[...,1]
+        fft_coeff_real = coeff[None,:,:,None]*nn[...,0]
+        fft_coeff_imag = coeff[None,:,:,None]*nn[...,1]
 
         fft_coeff = torch.stack([fft_coeff_real,fft_coeff_imag],dim=-1)
 
@@ -65,7 +69,7 @@ class WienerInc(object):
             return fft_coeff
         else:
 
-            dW_2copies = torch.ifftn(torch.view_as_complex(fft_coeff), dim=[1,2])
+            dW_2copies = torch.fft.ifftn(torch.view_as_complex(fft_coeff), dim=[1,2])
             dW = dW_2copies.real # only need one copy of dW
 
             return dW
