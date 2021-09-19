@@ -1,3 +1,4 @@
+#TODO: make it compatible with torch version
 # adapted from https://github.com/zongyi-li/fourier_neural_operator. 
 # we replace the deterministic forcing with a random noise which is a Wiener process 
 # in two dimensions following Example 10.3 and 10.12 in the book
@@ -34,7 +35,8 @@ def navier_stokes_2d(w0, f_h, visc, T, delta_t=1e-4, record_steps=1):
     steps = math.ceil(T/delta_t)
 
     #Initial vorticity to Fourier space
-    w_h = torch.rfft(w0, 2, normalized=False, onesided=False)
+    w_h = torch.fft.fftn(w0, dim=[1,2])
+    w_h = torch.stack([w_h.real, w_h.imag],dim=-1)
 
     #The forcing is already in Fourier space
     # f_h = torch.rfft(f, 2, normalized=False, onesided=False)
@@ -75,31 +77,32 @@ def navier_stokes_2d(w0, f_h, visc, T, delta_t=1e-4, record_steps=1):
         temp = q[...,0].clone()
         q[...,0] = -2*math.pi*k_y*q[...,1]
         q[...,1] = 2*math.pi*k_y*temp
-        q = torch.irfft(q, 2, normalized=False, onesided=False, signal_sizes=(N,N))
+        q = torch.fft.ifftn(torch.view_as_complex(q), dim=[1,2], s=(N,N)).real
 
         #Velocity field in y-direction = -psi_x
         v = psi_h.clone()
         temp = v[...,0].clone()
         v[...,0] = 2*math.pi*k_x*v[...,1]
         v[...,1] = -2*math.pi*k_x*temp
-        v = torch.irfft(v, 2, normalized=False, onesided=False, signal_sizes=(N,N))
+        v = torch.fft.ifftn(torch.view_as_complex(v), dim=[1,2], s=(N,N)).real
 
         #Partial x of vorticity
         w_x = w_h.clone()
         temp = w_x[...,0].clone()
         w_x[...,0] = -2*math.pi*k_x*w_x[...,1]
         w_x[...,1] = 2*math.pi*k_x*temp
-        w_x = torch.irfft(w_x, 2, normalized=False, onesided=False, signal_sizes=(N,N))
+        w_x = torch.fft.ifftn(torch.view_as_complex(w_x), dim=[1,2], s=(N,N)).real
 
         #Partial y of vorticity
         w_y = w_h.clone()
         temp = w_y[...,0].clone()
         w_y[...,0] = -2*math.pi*k_y*w_y[...,1]
         w_y[...,1] = 2*math.pi*k_y*temp
-        w_y = torch.irfft(w_y, 2, normalized=False, onesided=False, signal_sizes=(N,N))
+        w_y = torch.fft.ifftn(torch.view_as_complex(w_y), dim=[1,2], s=(N,N)).real
 
         #Non-linear term (u.grad(w)): compute in physical space then back to Fourier space
-        F_h = torch.rfft(q*w_x + v*w_y, 2, normalized=False, onesided=False)
+        F_h = torch.fft.fftn(q*w_x + v*w_y, dim=[1,2])
+        F_h = torch.stack([F_h.real, F_h.imag],dim=-1) 
 
         #Dealias
         F_h[...,0] = dealias* F_h[...,0]
@@ -114,7 +117,7 @@ def navier_stokes_2d(w0, f_h, visc, T, delta_t=1e-4, record_steps=1):
 
         if (j+1) % record_time == 0:
             #Solution in physical space
-            w = torch.irfft(w_h, 2, normalized=False, onesided=False, signal_sizes=(N,N))
+            w = torch.fft.ifftn(torch.view_as_complex(w_h), dim=[1,2], s=(N,N)).real
 
             #Record solution and time
             sol[...,c] = w

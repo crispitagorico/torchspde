@@ -50,7 +50,7 @@ class WienerInc(object):
         else:
 
             dW_2copies = torch.fft.ifftn(torch.view_as_complex(fft_coeff), dim=[1,2])
-            dW = dW_2copies[...,0]  # only need one copy of dW
+            dW = dW_2copies.real  # only need one copy of dW
 
             return dW
 
@@ -129,7 +129,6 @@ class GaussianRF(object):
         coeff[...,0] = self.sqrt_eig*coeff[...,0]
         coeff[...,1] = self.sqrt_eig*coeff[...,1]
 
-        u = torch.ifft(coeff, self.dim, normalized=False)
-        u = u[...,0]
+        u = torch.fft.ifftn(torch.view_as_complex(coeff), dim=[1,2]).real
 
         return u
