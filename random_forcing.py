@@ -30,7 +30,7 @@ class WienerInc(object):
         lambday = k_y * 2 * np.pi / a
 
 
-        self.sqrt_eig = np.exp(- alpha * (lambdax ** 2 + lambday ** 2) / 2)
+        self.sqrt_eig = torch.exp(- alpha * (lambdax ** 2 + lambday ** 2) / 2)
         self.sqrt_eig[0,0] = 0.0
 
 

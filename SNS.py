@@ -23,7 +23,7 @@ import scipy.io
 #T: final time
 #delta_t: internal time-step for solve (descrease if blow-up)
 #record_steps: number of in-time snapshots to record
-def navier_stokes_2d(w0, f_h, visc, T, delta_t=1e-4, record_steps=1):
+def navier_stokes_2d(w0, dW_sampler, visc, T, delta_t=1e-4, record_steps=1):
 
     #Grid size - must be power of 2
     N = w0.size()[-1]
@@ -40,10 +40,10 @@ def navier_stokes_2d(w0, f_h, visc, T, delta_t=1e-4, record_steps=1):
 
     #The forcing is already in Fourier space
     # f_h = torch.rfft(f, 2, normalized=False, onesided=False)
-
+    f_h = dW_sampler.sampledW(w0.shape[0], delta_t, iFspace=True)
     #If same forcing for the whole batch
-    if len(f_h.size()) < len(w_h.size()):
-        f_h = torch.unsqueeze(f_h, 0)
+    # if len(f_h.size()) < len(w_h.size()):
+        # f_h = torch.unsqueeze(f_h, 0)
 
     #Record solution every this number of steps
     record_time = math.floor(steps/record_steps)
@@ -109,8 +109,8 @@ def navier_stokes_2d(w0, f_h, visc, T, delta_t=1e-4, record_steps=1):
         F_h[...,1] = dealias* F_h[...,1]
 
         #Cranck-Nicholson update
-        w_h[...,0] = (-delta_t*F_h[...,0] + delta_t*f_h[...,j,0] + (1.0 - 0.5*delta_t*visc*lap)*w_h[...,0])/(1.0 + 0.5*delta_t*visc*lap)
-        w_h[...,1] = (-delta_t*F_h[...,1] + delta_t*f_h[...,j,1] + (1.0 - 0.5*delta_t*visc*lap)*w_h[...,1])/(1.0 + 0.5*delta_t*visc*lap)
+        w_h[...,0] = (-delta_t*F_h[...,0] + delta_t*f_h[...,0] + (1.0 - 0.5*delta_t*visc*lap)*w_h[...,0])/(1.0 + 0.5*delta_t*visc*lap)
+        w_h[...,1] = (-delta_t*F_h[...,1] + delta_t*f_h[...,1] + (1.0 - 0.5*delta_t*visc*lap)*w_h[...,1])/(1.0 + 0.5*delta_t*visc*lap)
 
         #Update real time (used only for recording)
         t += delta_t
@@ -129,68 +129,68 @@ def navier_stokes_2d(w0, f_h, visc, T, delta_t=1e-4, record_steps=1):
     return sol, sol_t
 
 
-device = torch.device('cuda')
+# device = torch.device('cuda')
 
-nu = 1e-3
+# nu = 1e-3
 
-# Spatial Resolution
-s = 256
-sub = 1
+# # Spatial Resolution
+# s = 256
+# sub = 1
 
-# Temporal Resolution   
-T = 50.0
-delta_t = 1e-4
-steps = math.ceil(T/delta_t)
+# # Temporal Resolution   
+# T = 50.0
+# delta_t = 1e-4
+# steps = math.ceil(T/delta_t)
 
-#Number of solutions to generate
-N = 20
+# #Number of solutions to generate
+# N = 20
 
-#Set up 2d GRF with covariance parameters
-GRF = GaussianRF(2, s, alpha=2.5, tau=7, device=device)
+# #Set up 2d GRF with covariance parameters
+# GRF = GaussianRF(2, s, alpha=2.5, tau=7, device=device)
 
-#Forcing function: 0.1*(sin(2pi(x+y)) + cos(2pi(x+y)))
-# t = torch.linspace(0, 1, s+1, device=device)
-# t = t[0:-1]
+# #Forcing function: 0.1*(sin(2pi(x+y)) + cos(2pi(x+y)))
+# # t = torch.linspace(0, 1, s+1, device=device)
+# # t = t[0:-1]
 
-# X,Y = torch.meshgrid(t, t)
-# f = 0.1*(torch.sin(2*math.pi*(X + Y)) + torch.cos(2*math.pi*(X + Y)))
+# # X,Y = torch.meshgrid(t, t)
+# # f = 0.1*(torch.sin(2*math.pi*(X + Y)) + torch.cos(2*math.pi*(X + Y)))
 
-#Forcing function: sqrt(nu)dW/dt in Fourier space
-dW_Sampler = WienerInc(a=1,J=s,alpha=0.05, device=device) 
+# #Forcing function: sqrt(nu)dW/dt in Fourier space
+# dW_Sampler = WienerInc(a=1,J=s,alpha=0.05, device=device) 
 
 
-#Number of snapshots from solution
-record_steps = 200
+# #Number of snapshots from solution
+# record_steps = 200
 
-#Inputs
-a = torch.zeros(N, s, s)
-#Solutions
-u = torch.zeros(N, s, s, record_steps)
+# #Inputs
+# a = torch.zeros(N, s, s)
+# #Solutions
+# u = torch.zeros(N, s, s, record_steps)
 
-#Solve equations in batches (order of magnitude speed-up)
+# #Solve equations in batches (order of magnitude speed-up)
 
-#Batch size
-bsize = 20
+# #Batch size
+# bsize = 20
 
-c = 0
-t0 =default_timer()
-for j in range(N//bsize):
+# c = 0
+# t0 =default_timer()
+# for j in range(N//bsize):
 
-    #Sample random feilds
-    w0 = GRF.sample(bsize)
+#     #Sample random feilds
+#     w0 = GRF.sample(bsize)
 
-    #Sample random forcing (sqrt(nu)dW/dt in Fourier space)
-    dW_h = dW_Sampler.sampleseriessdW(bsize, steps, delta_t, iFspace=True)
-    forcing_h = sqrt(nu)*dW_h/delta_t
+#     #Sample random forcing (sqrt(nu)dW/dt in Fourier space) but does not fit in memory
+#     # dW_h = dW_Sampler.sampleseriessdW(bsize, steps, delta_t, iFspace=True)
+#     # forcing_h = sqrt(nu)*dW_h/delta_t
 
-    #Solve NS
-    sol, sol_t = navier_stokes_2d(w0, f, nu, T, delta_t, record_steps)  # w0, f_h, visc, T, delta_t, record_steps
+#     #Solve NS
+#     sol, sol_t = navier_stokes_2d(w0, dW_Sampler, nu, T, delta_t, record_steps)  # w0, f_h, visc, T, delta_t, record_steps
 
-    a[c:(c+bsize),...] = w0
-    u[c:(c+bsize),...] = sol
+#     a[c:(c+bsize),...] = w0
+#     u[c:(c+bsize),...] = sol
 
-    c += bsize
-    t1 = default_timer()
-    print(j, c, t1-t0)
+#     c += bsize
+#     t1 = default_timer()
+#     print(j, c, t1-t0)
 
-scipy.io.savemat('ns_data.mat', mdict={'a': a.cpu().numpy(), 'u': u.cpu().numpy(), 't': sol_t.cpu().numpy()})
+# scipy.io.savemat('ns_data.mat', mdict={'a': a.cpu().numpy(), 'u': u.cpu().numpy(), 't': sol_t.cpu().numpy()})
