@@ -23,13 +23,14 @@ import scipy.io
 #T: final time
 #delta_t: internal time-step for solve (descrease if blow-up)
 #record_steps: number of in-time snapshots to record
-def navier_stokes_2d(w0, f, visc, T, delta_t=1e-4, record_steps=1, dW_sampler=None):
+def navier_stokes_2d(a, w0, f, visc, T, delta_t=1e-4, record_steps=1, dW_sampler=None):
 
     #Grid size - must be power of 2
-    N = w0.size()[-1]
+    N1, N2 = w0.size()[-2], w0.size()[-1] 
 
     #Maximum frequency
-    k_max = math.floor(N/2.0)
+    k_max1 = math.floor(N1/2.0)
+    k_max2 = math.floor(N1/2.0)
 
     #Number of steps to final time
     steps = math.ceil(T/delta_t)
@@ -58,7 +59,7 @@ def navier_stokes_2d(w0, f, visc, T, delta_t=1e-4, record_steps=1, dW_sampler=No
     #Wavenumbers in x-direction
     k_x = k_y.transpose(0,1)
     #Negative Laplacian in Fourier space
-    lap = 4*(math.pi**2)*(k_x**2 + k_y**2)
+    lap = 4*(math.pi**2)*(k_x**2 + k_y**2)/(a[0]*a[1])
     lap[0,0] = 1.0
     #Dealiasing mask
     dealias = torch.unsqueeze(torch.logical_and(torch.abs(k_y) <= (2.0/3.0)*k_max, torch.abs(k_x) <= (2.0/3.0)*k_max).float(), 0)
@@ -82,28 +83,28 @@ def navier_stokes_2d(w0, f, visc, T, delta_t=1e-4, record_steps=1, dW_sampler=No
         temp = q[...,0].clone()
         q[...,0] = -2*math.pi*k_y*q[...,1]
         q[...,1] = 2*math.pi*k_y*temp
-        q = torch.fft.ifftn(torch.view_as_complex(q), dim=[1,2], s=(N,N)).real
+        q = torch.fft.ifftn(torch.view_as_complex(q/a[1]), dim=[1,2], s=(N1,N2)).real
 
         #Velocity field in y-direction = -psi_x
         v = psi_h.clone()
         temp = v[...,0].clone()
         v[...,0] = 2*math.pi*k_x*v[...,1]
         v[...,1] = -2*math.pi*k_x*temp
-        v = torch.fft.ifftn(torch.view_as_complex(v), dim=[1,2], s=(N,N)).real
+        v = torch.fft.ifftn(torch.view_as_complex(v/a[0]), dim=[1,2], s=(N1,N2)).real
 
         #Partial x of vorticity
         w_x = w_h.clone()
         temp = w_x[...,0].clone()
         w_x[...,0] = -2*math.pi*k_x*w_x[...,1]
         w_x[...,1] = 2*math.pi*k_x*temp
-        w_x = torch.fft.ifftn(torch.view_as_complex(w_x), dim=[1,2], s=(N,N)).real
+        w_x = torch.fft.ifftn(torch.view_as_complex(w_x/a[0]), dim=[1,2], s=(N1,N2)).real
 
         #Partial y of vorticity
         w_y = w_h.clone()
         temp = w_y[...,0].clone()
         w_y[...,0] = -2*math.pi*k_y*w_y[...,1]
         w_y[...,1] = 2*math.pi*k_y*temp
-        w_y = torch.fft.ifftn(torch.view_as_complex(w_y), dim=[1,2], s=(N,N)).real
+        w_y = torch.fft.ifftn(torch.view_as_complex(w_y/a[1]), dim=[1,2], s=(N1,N2)).real
 
         #Non-linear term (u.grad(w)): compute in physical space then back to Fourier space
         F_h = torch.fft.fftn(q*w_x + v*w_y, dim=[1,2])
@@ -126,7 +127,7 @@ def navier_stokes_2d(w0, f, visc, T, delta_t=1e-4, record_steps=1, dW_sampler=No
 
         if (j+1) % record_time == 0:
             #Solution in physical space
-            w = torch.fft.ifftn(torch.view_as_complex(w_h), dim=[1,2], s=(N,N)).real
+            w = torch.fft.ifftn(torch.view_as_complex(w_h), dim=[1,2], s=(N1,N2)).real
 
             #Record solution and time
             sol[...,c] = w

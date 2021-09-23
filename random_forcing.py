@@ -11,23 +11,26 @@ from timeit import default_timer
 
 class WienerInc(object):
 
-    def __init__(self, a=1, J=256, alpha=0.05, device=None):
+    def __init__(self, a=[1,1], J=[256,256], alpha=0.05, device=None):
 
         self.device = device
         self.J = J 
         self.alpha = alpha 
         self.a = a 
 
-        k_max = J//2
+        k_max1, k_max2 = J[0]//2, J[1]//2 
 
-        wavenumers = torch.cat((torch.arange(start=0, end=k_max, step=1, device=device), \
-                                torch.arange(start=-k_max, end=0, step=1, device=device)), 0).repeat(J,1)
+        wavenumers1 = torch.cat((torch.arange(start=0, end=k_max1, step=1, device=device), \
+                                torch.arange(start=-k_max1, end=0, step=1, device=device)), 0).repeat(J[1],1)
 
-        k_x = wavenumers.transpose(0,1)
-        k_y = wavenumers
+        wavenumers2 = torch.cat((torch.arange(start=0, end=k_max2, step=1, device=device), \
+                                torch.arange(start=-k_max2, end=0, step=1, device=device)), 0).repeat(J[0],1)
 
-        lambdax = k_x * 2 * np.pi / a
-        lambday = k_y * 2 * np.pi / a
+        k_x = wavenumers1.transpose(0,1)
+        k_y = wavenumers2
+
+        lambdax = k_x * 2 * np.pi / a[0]
+        lambday = k_y * 2 * np.pi / a[1]
 
 
         self.sqrt_eig = torch.exp(- alpha * (lambdax ** 2 + lambday ** 2) / 2)
@@ -36,9 +39,9 @@ class WienerInc(object):
 
     def sampledW(self, N, dt, iFspace=False):
 
-        coeff = self.sqrt_eig * np.sqrt(dt) * self.J * self.J / np.sqrt(self.a*self.a)
+        coeff = self.sqrt_eig * np.sqrt(dt) * self.J[0] * self.J[1] / np.sqrt(self.a[0]*self.a[1])
         
-        nn = torch.randn(N, self.J, self.J, 2, device=self.device)
+        nn = torch.randn(N, self.J[0], self.J[1], 2, device=self.device)
 
         fft_coeff_real = coeff[None,:,:]*nn[...,0]
         fft_coeff_imag = coeff[None,:,:]*nn[...,1]
@@ -56,9 +59,9 @@ class WienerInc(object):
 
     def sampleseriessdW(self, N, T, dt, iFspace=False):
 
-        coeff = self.sqrt_eig * np.sqrt(dt) * self.J * self.J / np.sqrt(self.a*self.a)
+        coeff = self.sqrt_eig * np.sqrt(dt) * self.J[0] * self.J[1] / np.sqrt(self.a[0]*self.a[1])
         
-        nn = torch.randn(N, self.J, self.J, T, 2, device=self.device)
+        nn = torch.randn(N, self.J[0], self.J[1], T, 2, device=self.device)
 
         fft_coeff_real = coeff[None,:,:,None]*nn[...,0]
         fft_coeff_imag = coeff[None,:,:,None]*nn[...,1]
