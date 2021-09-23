@@ -59,14 +59,15 @@ def navier_stokes_2d(a, w0, f, visc, T, delta_t=1e-4, record_steps=1, dW_sampler
     record_time = math.floor(steps/record_steps)
 
     #Wavenumbers in y-direction
-    k_y = torch.cat((torch.arange(start=0, end=k_max, step=1, device=w0.device), torch.arange(start=-k_max, end=0, step=1, device=w0.device)), 0).repeat(N,1)
+    k_y = torch.cat((torch.arange(start=0, end=k_max2, step=1, device=w0.device), torch.arange(start=-k_max2, end=0, step=1, device=w0.device)), 0).repeat(N1,1)
     #Wavenumbers in x-direction
-    k_x = k_y.transpose(0,1)
+    k_x = torch.cat((torch.arange(start=0, end=k_max1, step=1, device=w0.device), torch.arange(start=-k_max1, end=0, step=1, device=w0.device)), 0).repeat(N2,1).transpose(0,1)
     #Negative Laplacian in Fourier space
-    lap = 4*(math.pi**2)*(k_x**2 + k_y**2)/(a[0]*a[1])
-    lap[0,0] = 1.0
+    lap = 4*(math.pi**2)*(k_x**2/a[0]**2 + k_y**2/a[1]**2)
+    lap_ = lap.clone()
+    lap_[0,0] = 1.0
     #Dealiasing mask
-    dealias = torch.unsqueeze(torch.logical_and(torch.abs(k_y) <= (2.0/3.0)*k_max, torch.abs(k_x) <= (2.0/3.0)*k_max).float(), 0)
+    dealias = torch.unsqueeze(torch.logical_and(torch.abs(k_y) <= (2.0/3.0)*k_max2, torch.abs(k_x) <= (2.0/3.0)*k_max1).float(), 0)
 
     #Saving solution and time
     sol = torch.zeros(*w0.size(), record_steps, device=w0.device)
@@ -79,8 +80,8 @@ def navier_stokes_2d(a, w0, f, visc, T, delta_t=1e-4, record_steps=1, dW_sampler
     for j in range(steps):
         #Stream function in Fourier space: solve Poisson equation
         psi_h = w_h.clone()
-        psi_h[...,0] = psi_h[...,0]/lap
-        psi_h[...,1] = psi_h[...,1]/lap
+        psi_h[...,0] = psi_h[...,0]/lap_
+        psi_h[...,1] = psi_h[...,1]/lap_
 
         #Velocity field in x-direction = psi_y
         q = psi_h.clone()
