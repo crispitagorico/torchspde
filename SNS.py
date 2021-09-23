@@ -40,17 +40,21 @@ def navier_stokes_2d(a, w0, f, visc, T, delta_t=1e-4, record_steps=1, dW_sampler
     w_h = torch.stack([w_h.real, w_h.imag],dim=-1)
 
     #Forcing to Fourier space
-    f_h = torch.fft.fftn(f, dim=[-2,-1])
-    f_h = torch.stack([f_h.real, f_h.imag],dim=-1) 
-    #If same forcing for the whole batch 
-    if len(f_h.size()) < len(w_h.size()):
-        f_h = torch.unsqueeze(f_h, 0)
-    
+    if f is not None:
+        f_h = torch.fft.fftn(f, dim=[-2,-1])
+        f_h = torch.stack([f_h.real, f_h.imag],dim=-1) 
+        #If same forcing for the whole batch 
+        if len(f_h.size()) < len(w_h.size()):
+            f_h = torch.unsqueeze(f_h, 0)
+    else:
+        f_h = torch.zeros_like(w_h)
+        
     #If stochastic forcing
     if dW_sampler is not None:
         dW_h = dW_sampler.sampledW(w0.shape[0], delta_t, iFspace=True)
         f_sto_h = math.sqrt(visc)*dW_h/delta_t
-
+    else:
+        f_sto_h = torch.zeros_like(w_h)
     #Record solution every this number of steps
     record_time = math.floor(steps/record_steps)
 
@@ -115,12 +119,8 @@ def navier_stokes_2d(a, w0, f, visc, T, delta_t=1e-4, record_steps=1, dW_sampler
         F_h[...,1] = dealias* F_h[...,1]
 
         #Cranck-Nicholson update
-        if dW_sampler:
-            w_h[...,0] = (-delta_t*F_h[...,0] + delta_t*f_h[...,0] + delta_t*f_sto_h[...,0] + (1.0 - 0.5*delta_t*visc*lap)*w_h[...,0])/(1.0 + 0.5*delta_t*visc*lap)
-            w_h[...,1] = (-delta_t*F_h[...,1] + delta_t*f_h[...,1] + delta_t*f_sto_h[...,1] + (1.0 - 0.5*delta_t*visc*lap)*w_h[...,1])/(1.0 + 0.5*delta_t*visc*lap)
-        else:
-            w_h[...,0] = (-delta_t*F_h[...,0] + delta_t*f_h[...,0] + (1.0 - 0.5*delta_t*visc*lap)*w_h[...,0])/(1.0 + 0.5*delta_t*visc*lap)
-            w_h[...,1] = (-delta_t*F_h[...,1] + delta_t*f_h[...,1] + (1.0 - 0.5*delta_t*visc*lap)*w_h[...,1])/(1.0 + 0.5*delta_t*visc*lap)
+        w_h[...,0] = (-delta_t*F_h[...,0] + delta_t*f_h[...,0] + delta_t*f_sto_h[...,0] + (1.0 - 0.5*delta_t*visc*lap)*w_h[...,0])/(1.0 + 0.5*delta_t*visc*lap)
+        w_h[...,1] = (-delta_t*F_h[...,1] + delta_t*f_h[...,1] + delta_t*f_sto_h[...,1] + (1.0 - 0.5*delta_t*visc*lap)*w_h[...,1])/(1.0 + 0.5*delta_t*visc*lap)
 
         #Update real time (used only for recording)
         t += delta_t
