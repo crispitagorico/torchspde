@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import operator
 from functools import reduce
 from functools import partial
-
+import numpy as np
 
 ################################################################
 # 3d fourier layers
@@ -58,7 +58,7 @@ class SpectralConv3d(nn.Module):
         return x
 
 class FNO2d(nn.Module):
-    def __init__(self, modes1, modes2, modes3, width):
+    def __init__(self, modes1, modes2, modes3, width, T_in):
         super(FNO2d, self).__init__()
 
         """
@@ -68,8 +68,8 @@ class FNO2d(nn.Module):
             W defined by self.w; K defined by self.conv .
         3. Project from the channel space to the output space by self.fc1 and self.fc2 .
         
-        input: the solution of the first 10 timesteps + 3 locations (u(1, x, y), ..., u(10, x, y),  x, y, t). It's a constant function in time, except for the last index.
-        input shape: (batchsize, x=64, y=64, t=40, c=13)
+        input: the solution of the first T_in timesteps + 3 locations (u(1, x, y), ..., u(10, x, y),  x, y, t). It's a constant function in time, except for the last index.
+        input shape: (batchsize, x=64, y=64, t=40, c=T_in+3)
         output: the solution of the next 40 timesteps
         output shape: (batchsize, x=64, y=64, t=40, c=1)
         """
@@ -79,8 +79,8 @@ class FNO2d(nn.Module):
         self.modes3 = modes3
         self.width = width
         self.padding = 6 # pad the domain if input is non-periodic
-        self.fc0 = nn.Linear(13, self.width)
-        # input channel is 12: the solution of the first 10 timesteps + 3 locations (u(1, x, y), ..., u(10, x, y),  x, y, t)
+        self.fc0 = nn.Linear(T_in+3, self.width)
+        # input channel is T_in+3: the solution of the first T_in timesteps + 3 locations (u(1, x, y), ..., u(T_in, x, y),  x, y, t)
 
         self.conv0 = SpectralConv3d(self.width, self.width, self.modes1, self.modes2, self.modes3)
         self.conv1 = SpectralConv3d(self.width, self.width, self.modes1, self.modes2, self.modes3)
@@ -99,6 +99,8 @@ class FNO2d(nn.Module):
         self.fc2 = nn.Linear(128, 1)
 
     def forward(self, x):
+        """ - x: (batch, dim_x, dim_y, T_out, T_in)
+        """
         grid = self.get_grid(x.shape, x.device)
         x = torch.cat((x, grid), dim=-1)
         x = self.fc0(x)
