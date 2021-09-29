@@ -51,42 +51,70 @@ class SpectralConv2d(nn.Module):
         return x
 
 
+class FNO_layer(nn.Module):
+    def __init__(self, modes1, modes2, width, last=False):
+        super(FNO_layer, self).__init__()
+        """ ...
+        """
+        self.last = last
+
+        self.conv = SpectralConv2d(width, width, modes1, modes2)
+        self.w = nn.Conv2d(width, width, 1)
+        # self.bn = torch.nn.BatchNorm2d(width)
+
+
+    def forward(self, x):
+        """ x: (batch, hidden_channels, dim_x, dim_t)"""
+
+        x1 = self.conv(x)
+        x2 = self.w(x)
+        x = x1 + x2
+        if not self.last:
+            x = F.gelu(x)
+            
+        return x
+
+
 class FNO_space1D_time(nn.Module):
-    def __init__(self, modes1, modes2, width, T):
+    def __init__(self, modes1, modes2, width, L, T):
         super(FNO_space1D_time, self).__init__()
 
         """
-        The overall network. It contains 4 layers of the Fourier layer.
+        The overall network. It contains L layers of the Fourier layer.
         1. Lift the input to the desire channel dimension by self.fc0 .
-        2. 4 layers of the integral operators u' = (W + K)(u).
+        2. L layers of the integral operators u' = (W + K)(u).
             W defined by self.w; K defined by self.conv .
         3. Project from the channel space to the output space by self.fc1 and self.fc2 .
         
         input: a driving function observed at T timesteps + 2 locations (u(1, x), ..., u(T, x),  x, t). It's a constant function in time, except for the last index.
         input shape: (batchsize, x=64, t=T, c=T+2)
-        output: the solution of the next  timesteps
+        output: the solution at T timesteps
         output shape: (batchsize, x=64, t=T, c=1)
         """
 
         self.modes1 = modes1
         self.modes2 = modes2
         self.width = width
+        self.L = L
         self.padding = 6 # pad the domain if input is non-periodic
         self.fc0 = nn.Linear(T+2, self.width)
         # input channel is T+2: the solution of the first T timesteps + 2 locations (u(1, x), ..., u(T, x),  x, t)
 
-        self.conv0 = SpectralConv2d(self.width, self.width, self.modes1, self.modes2)
-        self.conv1 = SpectralConv2d(self.width, self.width, self.modes1, self.modes2)
-        self.conv2 = SpectralConv2d(self.width, self.width, self.modes1, self.modes2)
-        self.conv3 = SpectralConv2d(self.width, self.width, self.modes1, self.modes2)
-        self.w0 = nn.Conv2d(self.width, self.width, 1)
-        self.w1 = nn.Conv2d(self.width, self.width, 1)
-        self.w2 = nn.Conv2d(self.width, self.width, 1)
-        self.w3 = nn.Conv2d(self.width, self.width, 1)
-        self.bn0 = torch.nn.BatchNorm2d(self.width)
-        self.bn1 = torch.nn.BatchNorm2d(self.width)
-        self.bn2 = torch.nn.BatchNorm2d(self.width)
-        self.bn3 = torch.nn.BatchNorm2d(self.width)
+        # self.conv0 = SpectralConv2d(self.width, self.width, self.modes1, self.modes2)
+        # self.conv1 = SpectralConv2d(self.width, self.width, self.modes1, self.modes2)
+        # self.conv2 = SpectralConv2d(self.width, self.width, self.modes1, self.modes2)
+        # self.conv3 = SpectralConv2d(self.width, self.width, self.modes1, self.modes2)
+        # self.w0 = nn.Conv2d(self.width, self.width, 1)
+        # self.w1 = nn.Conv2d(self.width, self.width, 1)
+        # self.w2 = nn.Conv2d(self.width, self.width, 1)
+        # self.w3 = nn.Conv2d(self.width, self.width, 1)
+        # self.bn0 = torch.nn.BatchNorm2d(self.width)
+        # self.bn1 = torch.nn.BatchNorm2d(self.width)
+        # self.bn2 = torch.nn.BatchNorm2d(self.width)
+        # self.bn3 = torch.nn.BatchNorm2d(self.width)
+        self.net = [ FNO_layer(modes1, modes2, width) for i in range(self.L-1) ]
+        self.net += [ FNO_layer(modes1, modes2, width, last=True) ]
+        self.net = nn.Sequential(*self.net)
 
         self.fc1 = nn.Linear(self.width, 128)
         self.fc2 = nn.Linear(128, 1)
@@ -100,24 +128,26 @@ class FNO_space1D_time(nn.Module):
         x = x.permute(0, 3, 1, 2)
         x = F.pad(x, [0,self.padding]) # pad the domain if input is non-periodic
 
-        x1 = self.conv0(x)
-        x2 = self.w0(x)
-        x = x1 + x2
-        x = F.gelu(x)
+        # x1 = self.conv0(x)
+        # x2 = self.w0(x)
+        # x = x1 + x2
+        # x = F.gelu(x)
 
-        x1 = self.conv1(x)
-        x2 = self.w1(x)
-        x = x1 + x2
-        x = F.gelu(x)
+        # x1 = self.conv1(x)
+        # x2 = self.w1(x)
+        # x = x1 + x2
+        # x = F.gelu(x)
 
-        x1 = self.conv2(x)
-        x2 = self.w2(x)
-        x = x1 + x2
-        x = F.gelu(x)
+        # x1 = self.conv2(x)
+        # x2 = self.w2(x)
+        # x = x1 + x2
+        # x = F.gelu(x)
 
-        x1 = self.conv3(x)
-        x2 = self.w3(x)
-        x = x1 + x2
+        # x1 = self.conv3(x)
+        # x2 = self.w3(x)
+        # x = x1 + x2
+
+        x = self.net(x)
 
         x = x[..., :-self.padding]
         x = x.permute(0, 2, 3, 1) # pad the domain if input is non-periodic
