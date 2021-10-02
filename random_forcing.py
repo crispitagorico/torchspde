@@ -8,76 +8,31 @@ import matplotlib
 
 from timeit import default_timer
 
+def get_twod_bj(dtref,J,a,alpha,device):
+    """
+    Alg 4.5 Page 443 in the book "An Introduction to Computational Stochastic PDEs"
+    """
+    lambdax = 2 * np.pi * torch.cat([torch.arange(0,J[0]//2 +1,device=device), torch.arange(- J[0]//2 + 1,0,device=device)]) / a[0]
+    lambday = 2 * np.pi * torch.cat([torch.arange(0,J[1]//2 +1,device=device), torch.arange(- J[1]//2 + 1,0,device=device)]) / a[1]
+    lambdaxx, lambdayy = torch.meshgrid(lambdax,lambday)
+    root_qj = torch.exp(- alpha * (lambdaxx ** 2 + lambdayy ** 2) / 2)
+    bj = root_qj * np.sqrt(dtref) * J[0] * J[1] / np.sqrt(a[0] * a[1])
+    return bj
 
-class WienerInc(object):
-
-    def __init__(self, a=[1,1], J=[256,256], alpha=0.05, device=None):
-
-        self.device = device
-        self.J = J 
-        self.alpha = alpha 
-        self.a = a 
-
-        k_max1, k_max2 = J[0]//2, J[1]//2 
-
-        wavenumers1 = torch.cat((torch.arange(start=0, end=k_max1, step=1, device=device), \
-                                torch.arange(start=-k_max1, end=0, step=1, device=device)), 0).repeat(J[1],1)
-
-        wavenumers2 = torch.cat((torch.arange(start=0, end=k_max2, step=1, device=device), \
-                                torch.arange(start=-k_max2, end=0, step=1, device=device)), 0).repeat(J[0],1)
-
-        k_x = wavenumers1.transpose(0,1)
-        k_y = wavenumers2
-
-        lambdax = k_x * 2 * np.pi / a[0]
-        lambday = k_y * 2 * np.pi / a[1]
-
-
-        self.sqrt_eig = torch.exp(- alpha * (lambdax ** 2 + lambday ** 2) / 2)
-        self.sqrt_eig[0,0] = 0.0
-
-
-    def sampledW(self, N, dt, iFspace=False):
-
-        coeff = self.sqrt_eig * np.sqrt(dt) * self.J[0] * self.J[1] / np.sqrt(self.a[0]*self.a[1])
-        
-        nn = torch.randn(N, self.J[0], self.J[1], 2, device=self.device)
-
-        fft_coeff_real = coeff[None,:,:]*nn[...,0]
-        fft_coeff_imag = coeff[None,:,:]*nn[...,1]
-
-        fft_coeff = torch.stack([fft_coeff_real,fft_coeff_imag],dim=-1)
-
-        if iFspace:
-            return fft_coeff
-        else:
-
-            dW_2copies = torch.fft.ifftn(torch.view_as_complex(fft_coeff), dim=[1,2])
-            dW = dW_2copies.real  # only need one copy of dW
-
-            return dW
-
-    def sampleseriessdW(self, N, T, dt, iFspace=False):
-
-        coeff = self.sqrt_eig * np.sqrt(dt) * self.J[0] * self.J[1] / np.sqrt(self.a[0]*self.a[1])
-        
-        nn = torch.randn(N, self.J[0], self.J[1], T, 2, device=self.device)
-
-        fft_coeff_real = coeff[None,:,:,None]*nn[...,0]
-        fft_coeff_imag = coeff[None,:,:,None]*nn[...,1]
-
-        fft_coeff = torch.stack([fft_coeff_real,fft_coeff_imag],dim=-1)
-
-        if iFspace:
-            return fft_coeff
-        else:
-
-            dW_2copies = torch.fft.ifftn(torch.view_as_complex(fft_coeff), dim=[1,2])
-            dW = dW_2copies.real # only need one copy of dW
-
-            return dW
-
-
+def get_twod_dW(bj,kappa,M,device):
+    """
+    Alg 10.6 Page 444 in the book "An Introduction to Computational Stochastic PDEs"
+    """
+    J = bj.shape
+    if (kappa == 1):
+        nn = torch.randn(M,J[0],J[1],2,device=device)
+    else:
+        nn = torch.sum(torch.randn(kappa,M,J[0],J[1],2,device=device),0)
+    nn2 = torch.view_as_complex(nn)
+    tmp = torch.fft.ifft2(bj*nn2,dim=[-2,-1])
+    dW1 = torch.real(tmp)
+    dW2 = torch.imag(tmp)
+    return dW1,dW2
 
 class GaussianRF(object):
 
