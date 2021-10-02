@@ -10,6 +10,7 @@ import math
 
 import matplotlib.pyplot as plt
 import matplotlib
+from tqdm.notebook import tqdm
 
 from random_forcing import GaussianRF, get_twod_bj, get_twod_dW
 
