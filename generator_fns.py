@@ -110,7 +110,8 @@ def navier_stokes_2d(a, w0, fhandle, visc, T, delta_t=1e-4, record_steps=1):
 
 
         #Forcing
-        f_h = torch.fft.fftn(fhandle(t), dim=[-2,-1])
+        force_t = fhandle(t)
+        f_h = torch.fft.fftn(force_t, dim=[-2,-1])
         f_h = torch.stack([f_h.real, f_h.imag],dim=-1) 
 
         
@@ -125,18 +126,15 @@ def navier_stokes_2d(a, w0, fhandle, visc, T, delta_t=1e-4, record_steps=1):
         if (j+1) % record_time == 0:
             #Solution in physical space
             w = torch.fft.ifftn(torch.view_as_complex(w_h), dim=[1,2], s=(N1,N2)).real
-            if stochastic_forcing:
-              forcing[...,c] = dW
+
+            forcing[...,c] = force_t
             #Record solution and time
             sol[...,c] = w
             sol_t[c] = t
 
             c += 1
 
-    if stochastic_forcing:
-      return sol, sol_t, forcing
-
-    return sol, sol_t
+    return sol, sol_t, forcing
 
 
 # ### Example to generate data
