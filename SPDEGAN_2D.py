@@ -156,7 +156,7 @@ class DiscriminatorSPDE(torch.nn.Module):
     def __init__(self, data_size, hidden_size, mlp_size, num_layers, modes1, modes2, modes3, T):
         super().__init__()
 
-        self._readin = MLP(data_size, hidden_size, mlp_size, num_layers, tanh=False)
+        self._readin = MLP2D(data_size, hidden_size, mlp_size, num_layers, tanh=False)
         self._func = GeneratorFunc(data_size, hidden_size, mlp_size, num_layers)
         self._net =  NeuralFixedPoint(self._func, modes1, modes2, modes3, T, n_iter=2)
         # self._net = DiscriminatorFunc(data_size, hidden_size, mlp_size, num_layers)
@@ -168,9 +168,9 @@ class DiscriminatorSPDE(torch.nn.Module):
         """ - x: (batch, data_size, dim_x, dim_t)
         """
 
-        x = self._readin(x)
+        x0 = self._readin(x[...,0])
 
-        x = self._net(x)
+        x = self._net(x0,x)
 
         x = self._readout(x)  # (batch, 1, dim_x, dim_y, dim_t)
 
