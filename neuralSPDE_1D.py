@@ -1,153 +1,85 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from SPDE1Dint import NeuralFixedPoint
 
-
-def compl_mul2d(a, b):
-    """ ...
-    """
-    return torch.einsum("aibc, ijbc -> ajbc",a,b)
-
-
-def compl_mul1d_time(a, b):
-    """ ...
-    """
-    return torch.einsum("aib, ijbc -> ajbc",a,b)
-
-
-class KernelConvolution(nn.Module):
-    def __init__(self, channels, modes1, modes2, T):
-        super(KernelConvolution, self).__init__()
-
-        """ ...    
+class MLP(nn.Module):
+    def __init__(self, in_size, out_size):
+        super(MLP, self).__init__()
+        """ TODO: add possibility to have more layers 
         """
-        self.modes1 = modes1
-        self.modes2 = modes2
-        self.T = T
 
-        self.scale = 1. / (channels**2)
-        self.weights = nn.Parameter(self.scale * torch.rand(channels, channels, self.modes1, self.modes2, dtype=torch.cfloat))
-        # self.weights = nn.Parameter(self.scale * torch.rand(channels, self.modes1, self.modes2, dtype=torch.cfloat))
-        
-    def forward(self, x, time=True):
-        """ x: (batch, channels, dim_x, dim_y, dim_t)"""
+        model = [nn.Conv2d(in_size, out_size, 1), nn.BatchNorm2d(out_size), nn.Tanh()] 
 
-        x0, x1 = x.size(2)//2 - self.modes1//2, x.size(2)//2 + self.modes1//2
-        t0, t1 = self.T//2 - self.modes2//2, self.T//2 + self.modes2//2
-
-        if time: # If computing the space-time convolution
-
-            # Compute FFT
-            x_ft = torch.fft.fftn(x, dim=[2,3])
-            x_ft = torch.fft.fftshift(x_ft, dim=[2,3])
- 
-            # Pointwise multiplication by complex matrix 
-            out_ft = torch.zeros(x.size(0), x.size(1), x.size(2), x.size(3), device=x.device, dtype=torch.cfloat)
-            out_ft[:, :, x0:x1, t0:t1] = compl_mul2d(x_ft[:, :, x0:x1, t0:t1], self.weights)
-            # out_ft[:, :, x0:x1, t0:t1] = x_ft[:, :, x0:x1, t0:t1]*self.weights[None,...]
-
-            # Compute Inverse FFT
-            out_ft = torch.fft.ifftshift(out_ft, dim=[2,3])
-            x = torch.fft.ifftn(out_ft, dim=[2,3], s=(x.size(2), x.size(3)))
-            return x.real
-
-        else: # If computing the convolution in space only
-            return self.forward_no_time(x)
-
-    def forward_no_time(self, x):
-        """ x: (batch, channels, dim_x)"""
-
-        x0, x1 = x.size(2)//2 - self.modes1//2, x.size(2)//2 + self.modes1//2
-
-        weights = torch.fft.ifftn(self.weights, dim=[-1], s=self.T)
-
-        # Compute FFT of the input signal to convolve
-        x_ft = torch.fft.fftn(x, dim=[2])
-        x_ft = torch.fft.fftshift(x_ft, dim=[2])
-
-        # Pointwise multiplication by complex matrix 
-        out_ft = torch.zeros(x.size(0), x.size(1), x.size(2), self.T, device=x.device, dtype=torch.cfloat)
-        out_ft[:, :, x0:x1, :] = compl_mul1d_time(x_ft[:, :, x0:x1], weights)
-        # out_ft[:, :, x0:x1, :] = x_ft[:, :, x0:x1][...,None]*weights[None,...]
-
-        # Compute Inverse FFT
-        out_ft = torch.fft.ifftshift(out_ft, dim=[2])
-        x = torch.fft.ifftn(out_ft, dim=[2], s=x.size(2))
-
-        return x.real
-
-
-class F(nn.Module):
-    def __init__(self, hidden_channels, forcing_channels):
-        super(F, self).__init__()
-        """ ...
-        """
-        self.forcing_channels = forcing_channels
-
-        # net = [nn.Linear(hidden_channels, hidden_channels*forcing_channels), nn.Tanh()]
-        net = [nn.Conv2d(hidden_channels, hidden_channels*forcing_channels, 1), nn.BatchNorm2d(hidden_channels*forcing_channels), nn.Tanh()] 
-        self.net = nn.Sequential(*net)
+        self._model = nn.Sequential(*model)
 
     def forward(self, x):
         """ x: (batch, hidden_channels, dim_x, dim_t)"""
-        return self.net(x).view(x.size(0), x.size(1), self.forcing_channels, x.size(2), x.size(3))
+        return self._model(x)
+
+###################
+# Now we define the SPDEs.
+#
+# We begin by defining the generator SPDE.
+###################
+class GeneratorFunc(torch.nn.Module):
+    # SPDE in functional form: partial_t u_t = F(u_t) + G(u_t) partial_t xi(t) 
+
+    def __init__(self, noise_size, hidden_size):
+        super().__init__()
+        self._noise_size = noise_size
+        self._hidden_size = hidden_size
+
+        ###################
+        # F and G are resolution invariant MLP (acting on the channels). 
+        # Note the final tanh nonlinearity: this is typically important for good performance, to constrain the rate of
+        # change of the hidden state.
+        ###################
+        self._F = MLP(hidden_size, hidden_size)  # add dimensions to hidden_size if grid is used in input
+        self._G = MLP(hidden_size, hidden_size * noise_size)
+
+    def forward(self, z):
+        # z has shape (batch_size, hidden_size, dim_x, dim_t)
+
+        # if we want to add the space-time grid
+        # t = t.expand(z.size(0), 1)
+        # tz = torch.cat([t, z], dim=1)
+        return self._F(z), self._G(z).view(z.size(0), self._hidden_size, self._noise_size, z.size(2), z.size(3))
 
 
-class IterationLayer(nn.Module):
-    def __init__(self, modes1, modes2, hidden_channels, forcing_channels, T):
-        super(IterationLayer, self).__init__()
-        """...
-        """
+###################
+# Now we wrap it up into something that computes the SPDE.
+###################
+class Generator(torch.nn.Module):  
+    def __init__(self, data_size, noise_size, hidden_size, modes1, modes2, T):
+        super().__init__()
+        # data size is the number of channels/coordinates of the solution u 
+        # noise_size is the number of channels/coordinates of the forcing xi
+        # hidden_size is the number of channels for z (in the latent space)
+        # modes1, modes2, and T are parameters for the integrator.
 
-        self.F = F(hidden_channels, forcing_channels)
-        self.convolution = KernelConvolution(hidden_channels, modes1, modes2, T)
+        self._initial = nn.Linear(data_size, hidden_size)
 
-    def forward(self, x, xi):
-        """ - x: (batch, hidden_channels, dim_x, dim_t)
-            - xi: (batch, forcing_channels, dim_x, dim_t)
-        """
-        mat = self.F(x)
-        y = torch.einsum('abcde, acde -> abde', mat, xi)
-        return self.convolution(y)
-        
+        self._func = GeneratorFunc(noise_size, hidden_size)
 
-class NeuralFixedPoint(nn.Module):
-    def __init__(self, modes1, modes2, in_channels, hidden_channels, forcing_channels, out_channels, T, n_iter):
-        super(NeuralFixedPoint, self).__init__()
-
-        """ ...
-        """
-
-        # self.padding = int(2**(np.ceil(np.log2(abs(2*T-1)))))
-
-        self.n_iter = n_iter
-        
-        self.readin = nn.Linear(in_channels, hidden_channels)
-        
-        self.iter_layer = IterationLayer(modes1, modes2, hidden_channels, forcing_channels, T) 
-      
-        self.initial_convolution = self.iter_layer.convolution
-
-        readout = [nn.Linear(hidden_channels, 128), nn.ReLU(), nn.Linear(128, out_channels)]
+        readout = [nn.Linear(hidden_size, 128), nn.ReLU(), nn.Linear(128, data_size)]
         self.readout = nn.Sequential(*readout)
 
-    def forward(self, x, xi):
-        """ - x: (batch, in_channels, dim_x)
-            - xi: (batch, forcing_channels, dim_x, dim_t)
-        """
+        self._integrator = NeuralFixedPoint(self._func, modes1, modes2, T, n_iter=2)
 
-        z0 = self.readin(x.permute(0,2,1)).permute(0,2,1)
+    def forward(self, u0, xi):
+        # ts has shape (t_size,) and corresponds to the points we want to evaluate the SPDE at.
+
+        ###################
+        # Actually solve the SPDE. 
+        ###################
+        z0 = self._initial(u0.permute(0,2,1)).permute(0,2,1)
+
+        zs = self._integrator(z0, xi)
+
+        ys = self._readout(zs.permute(0,2,3,1)).permute(0,3,1,2)
         
-        # x = F.pad(x,[0,self.padding-10])
-        z0 =  self.initial_convolution(z0, time=False) 
-
-        z = z0
-        for i in range(self.n_iter):
-            y = z0 + self.iter_layer(z, xi)
-            z = y
-        
-        return self.readout(y.permute(0,2,3,1)).permute(0,3,1,2)
-
+        return ys
 
 
 
