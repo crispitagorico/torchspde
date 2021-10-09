@@ -51,21 +51,21 @@ class GeneratorFunc(torch.nn.Module):
 # Now we wrap it up into something that computes the SPDE.
 ###################
 class Generator(torch.nn.Module):  
-    def __init__(self, data_size, noise_size, hidden_size, modes1, modes2, T):
+    def __init__(self, data_size, noise_size, hidden_size, modes1, modes2, T, n_iter):
         super().__init__()
         # data size is the number of channels/coordinates of the solution u 
         # noise_size is the number of channels/coordinates of the forcing xi
         # hidden_size is the number of channels for z (in the latent space)
-        # modes1, modes2, and T are parameters for the integrator.
+        # modes1, modes2, T and n_iter are parameters for the integrator.
 
         self._initial = nn.Linear(data_size, hidden_size)
 
         self._func = GeneratorFunc(noise_size, hidden_size)
 
         readout = [nn.Linear(hidden_size, 128), nn.ReLU(), nn.Linear(128, data_size)]
-        self.readout = nn.Sequential(*readout)
+        self._readout = nn.Sequential(*readout)
 
-        self._integrator = NeuralFixedPoint(self._func, modes1, modes2, T, n_iter=2)
+        self._integrator = NeuralFixedPoint(self._func, modes1, modes2, T, n_iter=n_iter)
 
     def forward(self, u0, xi):
         # ts has shape (t_size,) and corresponds to the points we want to evaluate the SPDE at.
