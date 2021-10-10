@@ -1,4 +1,4 @@
-#TODO: make it compatible with torch version
+#TODO: Some of the functions below are dupplicated in Wiener.py. Merge the two
 import torch
 import math
 import numpy as np

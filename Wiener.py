@@ -1,3 +1,4 @@
+#TODO: dtref and kappa
 import torch 
 import numpy as np
 import pandas as pd
@@ -5,7 +6,7 @@ import math
 from tqdm import tqdm
 from time import time
 
-class Noise(object):
+class CylindricalWiener(object):
     
     def __init__(self, s, t, dt, a, b, dx, correlation = None):
         self.s = s 
@@ -73,3 +74,47 @@ class Noise(object):
     # See Example 10.31 in "AN INTRODUCTION TO COMPUTATIONAL STOCHASTIC PDES" by Lord, Powell, Shardlow
     def WN_corr(self, x, j, a):
         return np.sqrt(2 / a) * np.sin(j * np.pi * x / a)
+
+
+class QWiener2D(object):
+
+    def __init__(self, dtref, kappa, a, J, alpha):
+        self.a = a 
+        self.J = J
+        self.dtref = dtref
+        self.kappa = kappa
+        self.alpha = alpha
+
+    def get_twod_bj(self, device):
+        """
+        Alg 4.5 Page 443 in the book "An Introduction to Computational Stochastic PDEs"
+        """
+        lambdax = 2 * np.pi * torch.cat([torch.arange(0,self.J[0]//2 +1,device=device), torch.arange(- self.J[0]//2 + 1,0,device=device)]) / self.a[0]
+        lambday = 2 * np.pi * torch.cat([torch.arange(0,self.J[1]//2 +1,device=device), torch.arange(- self.J[1]//2 + 1,0,device=device)]) / self.a[1]
+        lambdaxx, lambdayy = torch.meshgrid(lambdax,lambday)
+        root_qj = torch.exp(- self.alpha * (lambdaxx ** 2 + lambdayy ** 2) / 2)
+        bj = root_qj * np.sqrt(self.dtref) * self.J[0] * self.J[1] / np.sqrt(self.a[0] * self.a[1])
+        return bj
+
+    def get_twod_dW(self,bj,M,device):
+        """
+        Alg 10.6 Page 444 in the book "An Introduction to Computational Stochastic PDEs"
+        """
+        J = bj.shape
+        if (self.kappa == 1):
+            nn = torch.randn(M,self.J[0],self.J[1],2,device=device)
+        else:
+            nn = torch.sum(torch.randn(self.kappa,M,self.J[0],self.J[1],2,device=device),0)
+        nn2 = torch.view_as_complex(nn)
+        tmp = torch.fft.ifft2(bj*nn2,dim=[-2,-1])
+        dW1 = torch.real(tmp)
+        dW2 = torch.imag(tmp)
+        return dW1
+
+    def sample(self, num, torch_device=None):
+        bj = self.get_twod_bj(torch_device)
+        dW = self.get_twod_dW(bj,num,torch_device)
+        return dW
+
+
+
