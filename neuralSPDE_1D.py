@@ -22,41 +22,39 @@ class MLP(nn.Module):
 #
 # We begin by defining the generator SPDE.
 ###################
-class GeneratorFunc(torch.nn.Module):
-    # SPDE in functional form: partial_t u_t = F(u_t) + G(u_t) partial_t xi(t) 
+
+class SPDEFunc(torch.nn.Module):
+    """ SPDE in functional form: partial_t u_t = F(u_t) + G(u_t) partial_t xi(t) """
 
     def __init__(self, noise_size, hidden_size):
         super().__init__()
         self._noise_size = noise_size
         self._hidden_size = hidden_size
 
-        ###################
         # F and G are resolution invariant MLP (acting on the channels). 
-        # Note the final tanh nonlinearity: this is typically important for good performance, to constrain the rate of
-        # change of the hidden state.
-        ###################
-        self._F = MLP(hidden_size, hidden_size)  # add dimensions to hidden_size if grid is used in input
+        self._F = MLP(hidden_size, hidden_size)  
         self._G = MLP(hidden_size, hidden_size * noise_size)
 
     def forward(self, z):
-        # z has shape (batch_size, hidden_size, dim_x, dim_t)
+        """ z: (batch, hidden_size, dim_x, dim_t)"""
 
-        # if we want to add the space-time grid
-        # t = t.expand(z.size(0), 1)
-        # tz = torch.cat([t, z], dim=1)
+        # TODO: add possibility to add the space-time grid
         return self._F(z), self._G(z).view(z.size(0), self._hidden_size, self._noise_size, z.size(2), z.size(3))
 
 
 ###################
 # Now we wrap it up into something that computes the SPDE.
 ###################
-class Generator(torch.nn.Module):  
+
+class NeuralSPDE(torch.nn.Module):  
     def __init__(self, data_size, noise_size, hidden_size, modes1, modes2, T, n_iter):
         super().__init__()
-        # data size is the number of channels/coordinates of the solution u 
-        # noise_size is the number of channels/coordinates of the forcing xi
-        # hidden_size is the number of channels for z (in the latent space)
-        # modes1, modes2, T and n_iter are parameters for the integrator.
+        """
+        data size: the number of channels/coordinates of the solution u 
+        noise_size: the number of channels/coordinates of the forcing xi
+        hidden_size: the number of channels for z (in the latent space)
+        modes1, modes2, T and n_iter: parameters for the integrator.
+        """
 
         self._initial = nn.Linear(data_size, hidden_size)
 
@@ -68,11 +66,12 @@ class Generator(torch.nn.Module):
         self._integrator = NeuralFixedPoint(self._func, modes1, modes2, T, n_iter=n_iter)
 
     def forward(self, u0, xi):
-        # ts has shape (t_size,) and corresponds to the points we want to evaluate the SPDE at.
+        """ u0: (batch, hidden_size, dim_x)
+            xi: (batch, hidden_size, dim_x, dim_t)
+        """
 
-        ###################
         # Actually solve the SPDE. 
-        ###################
+
         z0 = self._initial(u0.permute(0,2,1)).permute(0,2,1)
 
         zs = self._integrator(z0, xi)
@@ -82,8 +81,76 @@ class Generator(torch.nn.Module):
         return ys
 
 
+###################
+# Alternatively, define a generative model
+###################
 
+class Generator(torch.nn.Module):  
+    def __init__(self, ic, wiener, data_size, initial_noise_size, noise_size, hidden_size, modes1, modes2, T, n_iter):
+        super().__init__()
+        
+        self._wiener = wiener
+        self._ic = ic
 
+        self._initial = nn.Linear(initial_noise_size, hidden_size)
+        self._func = SPDEFunc(noise_size, hidden_size)
+        readout = [nn.Linear(hidden_size, 128), nn.ReLU(), nn.Linear(128, data_size)]
+        self._readout = nn.Sequential(*readout)
+        self._integrator = NeuralFixedPoint(self._func, modes1, modes2, T, n_iter=n_iter)
+
+    def forward(self, device, batch_size):
+
+        # Sample and lift initial condition
+
+        init_noise = self._ic.sample(num=batch_size, device=device)
+        z0 = self._initial(init_noise.permute(0,2,1)).permute(0,2,1)
+
+        # Sample Wiener process 
+
+        xi = self._wiener.sample(batch_size, torch_device = device)
+        xi = xi.unsqueeze(1)
+
+        # Integrate and approximate fixed point
+
+        zs = self._integrator(z0, xi)
+
+        # Project back 
+
+        ys = self._readout(zs.permute(0,2,3,1)).permute(0,3,1,2)
+        
+        return ys
+
+###################
+# Next the discriminator. Here, we're going to use our SPDE model as the
+# discriminator. Except that the forcing will not be random but the output of the generator instead.
+# TODO: input the derivative instead. 
+###################
+
+class Discriminator(torch.nn.Module): 
+    def __init__(self, data_size, hidden_size, modes1, modes2, T, n_iter):
+        super().__init__()
+
+        self._readin = nn.Linear(data_size, hidden_size)
+        self._func = SPDEFunc(data_size, hidden_size)
+        self._net =  NeuralFixedPoint(self._func, modes1, modes2, T, n_iter=n_iter)
+        readout = [nn.Linear(hidden_size, 128), nn.ReLU(), nn.Linear(128, data_size)]
+        self._readout = nn.Sequential(*readout)
+
+    def forward(self, x):
+        """ - x: (batch, data_size, dim_x, dim_t)
+        """
+
+        x0 = self._readin(x[...,0].permute(0,2,1)).permute(0,2,1)
+
+        x = self._net(x0,x)
+
+        x = self._readout(x.permute(0,2,3,1)).permute(0,3,1,2)  # (batch, 1, dim_x, dim_t)
+
+        x = x[...,-1]          # (batch, 1, dim_x)
+ 
+        score = torch.sum(x,dim=[1,2])    # (batch)
+
+        return score.mean()
 
 # class AddDerivatives(nn.Module):
 #     def __init__(self, order):

@@ -1,157 +1,155 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from SPDE2Dint import NeuralFixedPoint
 
-
-def compl_mul3d(a, b):
-    """ ...
-    """
-    return torch.einsum("aibcd, ijbcd -> ajbcd",a,b)
-
-
-def compl_mul2d_time(a, b):
-    """ ...
-    """
-    return torch.einsum("aibc, ijbcd -> ajbcd",a,b)
-
-
-class KernelConvolution(nn.Module):
-    def __init__(self, channels, modes1, modes2, modes3, T):
-        super(KernelConvolution, self).__init__()
-
-        """ ...    
+class MLP(nn.Module):
+    def __init__(self, in_size, out_size):
+        super(MLP, self).__init__()
+        """ TODO: add possibility to have more layers 
         """
-        self.modes1 = modes1
-        self.modes2 = modes2
-        self.modes3 = modes3
-        self.T = T
 
-        self.scale = 1. / (channels**2)
-        self.weights = nn.Parameter(self.scale * torch.rand(channels, channels, self.modes1, self.modes2, self.modes3, dtype=torch.cfloat))
-        # self.weights = nn.Parameter(self.scale * torch.rand(channels, self.modes1, self.modes2, self.modes3, dtype=torch.cfloat))
-        
-    def forward(self, x, time=True):
-        """ x: (batch, channels, dim_x, dim_y, dim_t)"""
+        model = [nn.Conv3d(in_size, out_size, 1), nn.BatchNorm3d(out_size), nn.Tanh()] 
 
-        x0, x1 = x.size(2)//2 - self.modes1//2, x.size(2)//2 + self.modes1//2
-        y0, y1 = x.size(3)//2 - self.modes2//2, x.size(3)//2 + self.modes2//2
-        t0, t1 = self.T//2 - self.modes3//2, self.T//2 + self.modes3//2
-
-        if time: # If computing the space-time convolution
-
-            # Compute FFT
-            x_ft = torch.fft.fftn(x, dim=[2,3,4])
-            x_ft = torch.fft.fftshift(x_ft, dim=[2,3,4])
- 
-            # Pointwise multiplication by complex matrix 
-            out_ft = torch.zeros(x.size(0), x.size(1), x.size(2), x.size(3), x.size(4), device=x.device, dtype=torch.cfloat)
-            out_ft[:, :, x0:x1, y0:y1, t0:t1] = compl_mul3d(x_ft[:, :, x0:x1, y0:y1, t0:t1], self.weights)
-            # out_ft[:, :, x0:x1, y0:y1, t0:t1] = x_ft[:, :, x0:x1, y0:y1, t0:t1]*self.weights[None,...]
-
-            # Compute Inverse FFT
-            out_ft = torch.fft.ifftshift(out_ft, dim=[2,3,4])
-            x = torch.fft.ifftn(out_ft, dim=[2,3,4], s=(x.size(-3), x.size(-2), x.size(-1)))
-            return x.real
-
-        else: # If computing the convolution in space only
-            return self.forward_no_time(x)
-
-    def forward_no_time(self, x):
-        """ x: (batch, channels, dim_x, dim_y)"""
-
-        x0, x1 = x.size(2)//2 - self.modes1//2, x.size(2)//2 + self.modes1//2
-        y0, y1 = x.size(3)//2 - self.modes2//2, x.size(3)//2 + self.modes2//2
-
-        weights = torch.fft.ifftn(self.weights, dim=[-1], s=self.T)
-
-        # Compute FFT of the input signal to convolve
-        x_ft = torch.fft.fftn(x, dim=[2,3])
-        x_ft = torch.fft.fftshift(x_ft, dim=[2,3])
-
-        # Pointwise multiplication by complex matrix 
-        out_ft = torch.zeros(x.size(0), x.size(1), x.size(2), x.size(3), self.T, device=x.device, dtype=torch.cfloat)
-        out_ft[:, :, x0:x1, y0:y1, :] = compl_mul2d_time(x_ft[:, :, x0:x1, y0:y1], weights)
-        # out_ft[:, :, x0:x1, y0:y1, :] = x_ft[:, :, x0:x1, y0:y1][...,None]*weights[None,...]
-
-        # Compute Inverse FFT
-        out_ft = torch.fft.ifftshift(out_ft, dim=[2,3])
-        x = torch.fft.ifftn(out_ft, dim=[2,3], s=(x.size(2), x.size(3)))
-
-        return x.real
-
-
-class F(nn.Module):
-    def __init__(self, hidden_channels, forcing_channels):
-        super(F, self).__init__()
-        """ ...
-        """
-        self.forcing_channels = forcing_channels
-
-        # net = [nn.Linear(hidden_channels, hidden_channels*forcing_channels), nn.Tanh()]
-        net = [nn.Conv3d(hidden_channels, hidden_channels*forcing_channels, 1), nn.BatchNorm3d(hidden_channels*forcing_channels), nn.Tanh()] 
-        self.net = nn.Sequential(*net)
+        self._model = nn.Sequential(*model)
 
     def forward(self, x):
         """ x: (batch, hidden_channels, dim_x, dim_y, dim_t)"""
-        return self.net(x).view(x.size(0), x.size(1), self.forcing_channels, x.size(2), x.size(3), x.size(4))
+        return self._model(x)
+
+###################
+# Now we define the SPDEs.
+#
+# We begin by defining the generator SPDE.
+###################
+
+class SPDEFunc(torch.nn.Module):
+    """ SPDE in functional form: partial_t u_t = F(u_t) + G(u_t) partial_t xi(t) """
+
+    def __init__(self, noise_size, hidden_size):
+        super().__init__()
+        self._noise_size = noise_size
+        self._hidden_size = hidden_size
+
+        # F and G are resolution invariant MLP (acting on the channels). 
+        self._F = MLP(hidden_size, hidden_size)  
+        self._G = MLP(hidden_size, hidden_size * noise_size)
+
+    def forward(self, z):
+        """ z: (batch, hidden_size, dim_x, dim_y, dim_t)"""
+
+        # TODO: add possibility to add the space-time grid
+        return self._F(z), self._G(z).view(z.size(0), self._hidden_size, self._noise_size, z.size(2), z.size(3), z.size(4))
 
 
-class IterationLayer(nn.Module):
-    def __init__(self, modes1, modes2, modes3, hidden_channels, forcing_channels, T):
-        super(IterationLayer, self).__init__()
-        """...
+###################
+# Now we wrap it up into something that computes the SPDE.
+###################
+
+class NeuralSPDE(torch.nn.Module):  
+    def __init__(self, data_size, noise_size, hidden_size, modes1, modes2, T, n_iter):
+        super().__init__()
+        """
+        data size: the number of channels/coordinates of the solution u 
+        noise_size: the number of channels/coordinates of the forcing xi
+        hidden_size: the number of channels for z (in the latent space)
+        modes1, modes2, T and n_iter: parameters for the integrator.
         """
 
-        self.F = F(hidden_channels, forcing_channels)
-        self.convolution = KernelConvolution(hidden_channels, modes1, modes2, modes3, T)
+        self._initial = nn.Linear(data_size, hidden_size)
 
-    def forward(self, x, xi):
-        """ - x: (batch, hidden_channels, dim_x, dim_y, dim_t)
-            - xi: (batch, forcing_channels, dim_x, dim_y, dim_t)
-        """
-        mat = self.F(x)
-        y = torch.einsum('abcdef, acdef -> abdef', mat, xi)
-        return self.convolution(y)
-        
+        self._func = GeneratorFunc(noise_size, hidden_size)
 
-class NeuralFixedPoint(nn.Module):
-    def __init__(self, modes1, modes2, modes3, in_channels, hidden_channels, forcing_channels, out_channels, T, n_iter):
-        super(NeuralFixedPoint, self).__init__()
+        readout = [nn.Linear(hidden_size, 128), nn.ReLU(), nn.Linear(128, data_size)]
+        self._readout = nn.Sequential(*readout)
 
-        """ ...
+        self._integrator = NeuralFixedPoint(self._func, modes1, modes2, modes3, T, n_iter=n_iter)
+
+    def forward(self, u0, xi):
+        """ u0: (batch, hidden_size, dim_x, dim_y)
+            xi: (batch, hidden_size, dim_x, dim_y, dim_t)
         """
 
-        # self.padding = int(2**(np.ceil(np.log2(abs(2*T-1)))))
+        # Actually solve the SPDE. 
 
-        self.n_iter = n_iter
+        z0 = self._initial(u0.permute(0,2,3,1)).permute(0,3,1,2)
+
+        zs = self._integrator(z0, xi)
+
+        ys = self._readout(zs.permute(0,2,3,4,1)).permute(0,4,1,2,3)
         
-        self.readin = nn.Linear(in_channels, hidden_channels)
+        return ys
+
+###################
+# Alternatively, define a generative model
+###################
+
+class Generator(torch.nn.Module):  
+    def __init__(self, ic, wiener, data_size, initial_noise_size, noise_size, hidden_size, modes1, modes2, T, n_iter):
+        super().__init__()
         
-        self.iter_layer = IterationLayer(modes1, modes2, modes3, hidden_channels, forcing_channels, T) 
-      
-        self.initial_convolution = self.iter_layer.convolution
+        self._wiener = wiener
+        self._ic = ic
 
-        readout = [nn.Linear(hidden_channels, 128), nn.ReLU(), nn.Linear(128, out_channels)]
-        self.readout = nn.Sequential(*readout)
+        self._initial = nn.Linear(initial_noise_size, hidden_size)
+        self._func = SPDEFunc(noise_size, hidden_size)
+        readout = [nn.Linear(hidden_size, 128), nn.ReLU(), nn.Linear(128, data_size)]
+        self._readout = nn.Sequential(*readout)
+        self._integrator = NeuralFixedPoint(self._func, modes1, modes2, T, n_iter=n_iter)
 
-    def forward(self, x, xi):
-        """ - x: (batch, in_channels, dim_x, dim_y)
-            - xi: (batch, forcing_channels, dim_x, dim_y, dim_t)
+    def forward(self, device, batch_size):
+
+        # Sample and lift initial condition
+
+        init_noise = self._ic.sample(num=batch_size, device=device)  #(batch, initial_noise_size, dim_x, dim_y)
+        z0 = self._initial(init_noise.permute(0,2,3,1)).permute(0,3,1,2)
+
+        # Sample Wiener process 
+
+        xi = self._wiener.sample(batch_size, torch_device = device)
+        xi = xi.unsqueeze(1)
+
+        # Integrate and approximate fixed point
+
+        zs = self._integrator(z0, xi)
+
+        # Project back 
+
+        ys = self._readout(zs.permute(0,2,3,4,1)).permute(0,4,1,2,3)
+        
+        return ys
+
+###################
+# Next the discriminator. Here, we're going to use our SPDE model as the
+# discriminator. Except that the forcing will not be random but the output of the generator instead.
+# TODO: input the derivative instead. 
+###################
+
+class Discriminator(torch.nn.Module): 
+    def __init__(self, data_size, hidden_size, modes1, modes2, modes3, T, n_iter):
+        super().__init__()
+
+        self._readin = nn.Linear(data_size, hidden_size)
+        self._func = SPDEFunc(data_size, hidden_size)
+        self._net =  NeuralFixedPoint(self._func, modes1, modes2, modes3, T, n_iter=n_iter)
+        readout = [nn.Linear(hidden_size, 128), nn.ReLU(), nn.Linear(128, 1)]
+        self._readout = nn.Sequential(*readout)
+
+    def forward(self, x):
+        """ - x: (batch, data_size, dim_x, dim_y, dim_t)
         """
 
-        z0 = self.readin(x.permute(0,2,3,1)).permute(0,3,1,2)
-        
-        # x = F.pad(x,[0,self.padding-10])
-        z0 =  self.initial_convolution(z0, time=False) 
+        x0 = self._readin(x[...,0].permute(0,2,3,1)).permute(0,3,1,2)
 
-        z = z0
-        for i in range(self.n_iter):
-            y = z0 + self.iter_layer(z, xi)
-            z = y
-        
-        return self.readout(y.permute(0,2,3,4,1)).permute(0,4,1,2,3)
+        x = self._net(x0,x)
 
+        x = self._readout(x.permute(0,2,3,4,1)).permute(0,4,1,2,3)  # (batch, 1, dim_x, dim_y, dim_t)
 
+        x = x[...,-1]          # (batch, 1, dim_x, dim_y)
+ 
+        score = torch.sum(x,dim=[1,2,3])    # (batch)
+
+        return score.mean()
 
 
 

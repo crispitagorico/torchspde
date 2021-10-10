@@ -6,6 +6,7 @@ import torch.nn.functional as F
 ###################
 # First some helper objects to compute convolutions
 ###################
+
 def compl_mul2d(a, b):
     """ ...
     """
@@ -17,11 +18,20 @@ def compl_mul1d_time(a, b):
     """
     return torch.einsum("aib, ijbc -> ajbc",a,b)
 
+###################
+# Now we define the module whose forward pass computes either a space time convolution
+# or a spatial convolution with multiple kernels indexed by time
+###################
+
 class KernelConvolution(nn.Module):
     def __init__(self, channels, modes1, modes2, T):
         super(KernelConvolution, self).__init__()
 
-        """ ...    
+        """ This module has a kernel parametrized in the spectral domain
+        The method forward computes 
+            * a space time convolution if time=True
+            * if time=False, the fourier transform inverse of the kernel is computed
+              and the input is convolved (in space) with multime kernels indexed by time
         """
         self.modes1 = modes1
         self.modes2 = modes2
@@ -32,7 +42,7 @@ class KernelConvolution(nn.Module):
         # self.weights = nn.Parameter(self.scale * torch.rand(channels, self.modes1, self.modes2, dtype=torch.cfloat))
         
     def forward(self, x, time=True):
-        """ x: (batch, channels, dim_x, dim_y, dim_t)"""
+        """ x: (batch, channels, dim_x, dim_t)"""
 
         x0, x1 = x.size(2)//2 - self.modes1//2, x.size(2)//2 + self.modes1//2
         t0, t1 = self.T//2 - self.modes2//2, self.T//2 + self.modes2//2
@@ -84,11 +94,11 @@ class KernelConvolution(nn.Module):
 #
 # We begin by defining the fixed point map.
 ###################
+
 class IterationLayer(nn.Module):
     def __init__(self, spde_func, modes1, modes2, T):
         super(IterationLayer, self).__init__()
-        """...
-        """
+
         self._spde = spde_func
         self.convolution = KernelConvolution(spde_func._hidden_size, modes1, modes2, T)  
 
@@ -104,6 +114,7 @@ class IterationLayer(nn.Module):
 ###################
 # Now we wrap it up into something that solves the SPDE.
 ###################
+
 class NeuralFixedPoint(nn.Module):
     def __init__(self, spde_func, modes1, modes2, T, n_iter):
         super(NeuralFixedPoint, self).__init__()
