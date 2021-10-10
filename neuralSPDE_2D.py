@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from SPDE2Dint import NeuralFixedPoint
+from vector_fields import F_FNO
 
 class MLP(nn.Module):
     def __init__(self, in_size, out_size):
@@ -33,6 +34,8 @@ class SPDEFunc(torch.nn.Module):
 
         # F and G are resolution invariant MLP (acting on the channels). 
         self._F = MLP(hidden_size, hidden_size)  
+        # if a non local operator is necessary use instead:
+        # self._F = F_FNO(modes1, modes2, hidden_size, hidden_size, num_layers=2)
         self._G = MLP(hidden_size, hidden_size * noise_size)
 
     def forward(self, z):
