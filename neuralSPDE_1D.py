@@ -109,6 +109,7 @@ class Generator(torch.nn.Module):
 
         xi = self._wiener.sample(batch_size, torch_device = device)
         xi = xi.unsqueeze(1)
+        xi = torch.diff(xi,dim=-1)
 
         # Integrate and approximate fixed point
 
