@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from .SPDE1Dint import NeuralFixedPoint 
 
 class MLP(nn.Module):
     def __init__(self, in_size, out_size):

@@ -1,1 +1,0 @@
-from SPDE2Dint import NeuralFixedPoint
