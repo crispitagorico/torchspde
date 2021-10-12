@@ -1,8 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from SPDE2Dint import NeuralFixedPoint
-from vector_fields import F_FNO
 
 class MLP(nn.Module):
     def __init__(self, in_size, out_size):
@@ -61,7 +59,7 @@ class NeuralSPDE(torch.nn.Module):
 
         self._initial = nn.Linear(data_size, hidden_size)
 
-        self._func = GeneratorFunc(noise_size, hidden_size)
+        self._func = SPDEFunc(noise_size, hidden_size)
 
         readout = [nn.Linear(hidden_size, 128), nn.ReLU(), nn.Linear(128, data_size)]
         self._readout = nn.Sequential(*readout)
