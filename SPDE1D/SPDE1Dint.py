@@ -38,7 +38,7 @@ class KernelConvolution(nn.Module):
         self.T = T
 
         self.scale = 1. / (channels**2)
-        self.weights = nn.Parameter(self.scale * torch.rand(channels, channels, self.modes1, self.modes2, dtype=torch.cfloat))
+        self.weights = nn.Parameter(self.scale * torch.rand(channels, channels, self.modes1, self.modes2,  dtype=torch.cfloat))
         # self.weights = nn.Parameter(self.scale * torch.rand(channels, self.modes1, self.modes2, dtype=torch.cfloat))
         
     def forward(self, x, time=True):
@@ -71,7 +71,7 @@ class KernelConvolution(nn.Module):
 
         x0, x1 = x.size(2)//2 - self.modes1//2, x.size(2)//2 + self.modes1//2
 
-        weights = torch.fft.ifftn(self.weights, dim=[-1], s=self.T)
+        weights = torch.fft.ifftn(torch.fft.ifftshift(self.weights, dim=[-1]), dim=[-1], s=self.T)
 
         # Compute FFT of the input signal to convolve
         x_ft = torch.fft.fftn(x, dim=[2])

@@ -80,7 +80,7 @@ class KernelConvolution(nn.Module):
         x0, x1 = x.size(2)//2 - self.modes1//2, x.size(2)//2 + self.modes1//2
         y0, y1 = x.size(3)//2 - self.modes2//2, x.size(3)//2 + self.modes2//2
 
-        weights = torch.fft.ifftn(self.weights, dim=[-1], s=self.T)
+        weights = torch.fft.ifftn(torch.fft.ifftshift(self.weights, dim=[-1]), dim=[-1], s=self.T)
 
         # Compute FFT of the input signal to convolve
         x_ft = torch.fft.fftn(x, dim=[2,3])
