@@ -162,6 +162,8 @@ class FNO(torch.nn.Module):
         x = self.fc2(x)
         x = x.permute(0, 2, 1)
 
+        x = torch.nn.functional.tanh(x)
+
         return x
 
 class FNO_layer(torch.nn.Module):
