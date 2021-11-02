@@ -247,6 +247,12 @@ class UnitGaussianNormalizer(object):
         self.std = self.std.cpu()
 
 
+
+
+###################
+# The following utilities are for memory usage profiling
+#
+###################
 def _get_gpu_mem(synchronize=True, empty_cache=True):
     return torch.cuda.memory_allocated(), torch.cuda.memory_cached()
 
@@ -341,3 +347,23 @@ def plot_mem(
 
     if return_df:
         return df_
+
+
+
+###################
+# The following utility returns the maximum memory usage
+#
+###################
+
+def get_memory(device, reset=False, in_mb=True):
+  if device is None:
+      return float('nan')
+  if device.type == 'cuda':
+      if reset:
+          torch.cuda.reset_max_memory_allocated(device)
+      bytes = torch.cuda.max_memory_allocated(device)
+      if in_mb:
+          bytes = bytes / 1024 / 1024
+      return bytes
+  else:
+      return float('nan')
