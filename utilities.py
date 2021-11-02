@@ -298,7 +298,7 @@ def log_mem(model, inp, mem_log=None, exp=None, model_type='NSPDE'):
         _add_memory_hooks(idx, module, mem_log, exp, hr)
         
     try:
-        if model_type in ['SPDE', 'NCDE']:
+        if model_type in ['NSPDE', 'NCDE']:
             out = model(inp[0], inp[1])
         else:
             out = model(inp)
@@ -312,15 +312,7 @@ def log_mem(model, inp, mem_log=None, exp=None, model_type='NSPDE'):
         return mem_log
 
 
-def plot_mem(
-        df,
-        exps=None,
-        normalize_call_idx=True,
-        normalize_mem_all=True,
-        filter_fwd=False,
-        return_df=False,
-        output_file=None
-):
+def plot_mem(df, exps=None, normalize_call_idx=True, normalize_mem_all=True, filter_fwd=False, return_df=False, output_file=None):
     if exps is None:
         exps = df.exp.drop_duplicates()
 
