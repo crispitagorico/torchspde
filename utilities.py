@@ -283,7 +283,7 @@ def _add_memory_hooks(idx, mod, mem_log, exp, hr):
     h = mod.register_backward_hook(_generate_mem_hook(hr, mem_log, idx, 'bwd', exp))
     hr.append(h)
 
-def log_mem(model, inp, mem_log=None, exp=None):
+def log_mem(model, inp, mem_log=None, exp=None, model_type='NSPDE'):
     mem_log = mem_log or []
     exp = exp or f'exp_{len(mem_log)}'
     hr = []
@@ -291,7 +291,10 @@ def log_mem(model, inp, mem_log=None, exp=None):
         _add_memory_hooks(idx, module, mem_log, exp, hr)
         
     try:
-        out = model(inp[0], inp[1])
+        if model_type in ['SPDE', 'NCDE']:
+            out = model(inp[0], inp[1])
+        else:
+            out = model(inp)
         
         loss = out.sum()
         loss.backward()
