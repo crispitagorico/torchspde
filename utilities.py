@@ -3,6 +3,7 @@ import numpy as np
 import scipy.io
 import h5py
 import torch.nn as nn
+import matplotlib.pyplot as plt
 
 import operator
 from functools import reduce
