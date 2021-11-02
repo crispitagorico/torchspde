@@ -349,14 +349,14 @@ def plot_mem(df, exps=None, normalize_call_idx=True, normalize_mem_all=True, fil
 ###################
 
 def get_memory(device, reset=False, in_mb=True):
-  if device is None:
-      return float('nan')
-  if device.type == 'cuda':
-      if reset:
-          torch.cuda.reset_max_memory_allocated(device)
-      bytes = torch.cuda.max_memory_allocated(device)
-      if in_mb:
-          bytes = bytes / 1024 / 1024
-      return bytes
-  else:
-      return float('nan')
+    if device is None:
+        return float('nan')
+    if device.type == 'cuda':
+        if reset:
+            torch.cuda.reset_max_memory_allocated(device)
+        bytes = torch.cuda.max_memory_allocated(device)
+        if in_mb:
+            bytes = bytes / 1024 / 1024
+        return bytes
+    else:
+        return float('nan')
