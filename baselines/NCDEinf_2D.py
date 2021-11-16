@@ -40,7 +40,8 @@ class CDEFunc(torch.nn.Module):
         self._hidden_size = hidden_size
 
         # F and G are resolution invariant MLP (acting on the channels). 
-        self._F = MLP(hidden_size, hidden_size)  
+        self._F = FNO(modes1=16, modes2=8, in_channels=hidden_size, hidden_channels=hidden_size, L=1) 
+        # self._F = MLP(hidden_size, hidden_size)  
         self._G = MLP(hidden_size, hidden_size * noise_size)
 
     def forward(self, t, z):
