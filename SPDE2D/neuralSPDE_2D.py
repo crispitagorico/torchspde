@@ -49,7 +49,7 @@ class SPDEFunc(torch.nn.Module):
 ###################
 
 class NeuralSPDE(torch.nn.Module):  
-    def __init__(self, data_size, noise_size, hidden_size, modes1, modes2, T, n_iter):
+    def __init__(self, data_size, noise_size, hidden_size, modes1, modes2, modes3, T, n_iter):
         super().__init__()
         """
         data size: the number of channels/coordinates of the solution u 
