@@ -51,7 +51,7 @@ class KernelConvolution(nn.Module):
         """ z: (batch, channels, dim_x, (possibly dim_y), dim_t)"""
         
         # lower and upper bounds of selected frequencies
-        freqs = [ (z.size(i)//2 - self.modes[i]//2, z.size(i)//2 + self.modes[i]//2) for i in range(len(self.modes)) ]
+        freqs = [ (z.size(2+i)//2 - self.modes[i]//2, z.size(2+i)//2 + self.modes[i]//2) for i in range(len(self.modes)) ]
  
         if not init: # S * u
 
@@ -79,7 +79,7 @@ class KernelConvolution(nn.Module):
         """ z0_path: (batch, channels, dim_x, dim_t)"""
 
         # lower and upper bounds of selected frequencies
-        freqs = [ (z0_path.size(i)//2 - self.modes[i]//2, z0_path.size(i)//2 + self.modes[i]//2) for i in range(len(self.modes)-1) ]
+        freqs = [ (z0_path.size(2+i)//2 - self.modes[i]//2, z0_path.size(2+i)//2 + self.modes[i]//2) for i in range(len(self.modes)-1) ]
 
         # K_t = F_t^-1(K)
         weights = torch.fft.ifftn(torch.fft.ifftshift(self.weights, dim=[-1]), dim=[-1], s=z0_path.size(-1))
@@ -91,9 +91,9 @@ class KernelConvolution(nn.Module):
         # Pointwise multiplication by complex matrix 
         out_ft = torch.zeros(z0_path.size(), device=z0_path.device, dtype=torch.cfloat)
         if len(self.modes)==2: # 1d case
-            out_ft[:, :, freqs[0][0]:freqs[0][1], : ] = compl_mul1d_time(z_ft[:, :, freqs[0][0]:freqs[0][1] ], self.weights)
+            out_ft[:, :, freqs[0][0]:freqs[0][1], : ] = compl_mul1d_time(z_ft[:, :, freqs[0][0]:freqs[0][1] ], weights)
         else: # 2d case
-            out_ft[:, :, freqs[0][0]:freqs[0][1], freqs[1][0]:freqs[1][1], : ] = compl_mul2d_time(z_ft[:, :, freqs[0][0]:freqs[0][1], freqs[1][0]:freqs[1][1] ], self.weights)
+            out_ft[:, :, freqs[0][0]:freqs[0][1], freqs[1][0]:freqs[1][1], : ] = compl_mul2d_time(z_ft[:, :, freqs[0][0]:freqs[0][1], freqs[1][0]:freqs[1][1] ], weights)
 
 
         # Compute Inverse FFT

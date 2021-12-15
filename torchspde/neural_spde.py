@@ -86,7 +86,7 @@ class NeuralSPDE(torch.nn.Module):
             self.spde_func = SPDEFunc2d(noise_channels, hidden_channels)
 
         # linear projection
-        readout = [nn.Linear(hidden_size, 128), nn.ReLU(), nn.Linear(128, data_size)]
+        readout = [nn.Linear(hidden_channels, 128), nn.ReLU(), nn.Linear(128, in_channels)]
         self.readout = nn.Sequential(*readout)
 
         self.solver = NeuralFixedPoint(self.spde_func, n_iter, modes1, modes2, modes3)
