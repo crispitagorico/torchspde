@@ -132,6 +132,7 @@ class KernelConvolution(nn.Module):
             # Compute Inverse FFT  
             out_ft = torch.fft.ifftshift(out_ft, dim=self.dims) 
             
+            # (*) if the grid is provided, then compute the final DFT_inverse by hand to make explicit the dependence on the input and allow for autograd to compute gradients.
             if grid is None:
                 z = torch.fft.ifftn(out_ft, dim=self.dims)
             else:  
@@ -157,11 +158,10 @@ class KernelConvolution(nn.Module):
         freqs = [ (z0_path.size(2+i)//2 - self.modes[i]//2, z0_path.size(2+i)//2 + self.modes[i]//2) for i in range(len(self.modes)-1) ]
 
         # K_t = F_t^-1(K)  
-        if grid is None:
+        if grid is None: # (*)
             weights = torch.fft.ifftn(torch.fft.ifftshift(self.weights, dim=[-1]), dim=[-1], s=z0_path.size(-1))
         else:  
             weights = inverseDFTn(torch.fft.ifftshift(self.weights, dim=[-1]), gridt, dim=[-1], s=[z0_path.size(-1)])
-
 
         # Compute FFT of the input signal to convolve
         z_ft = torch.fft.fftn(z0_path, dim=self.dims[:-1])
@@ -178,7 +178,7 @@ class KernelConvolution(nn.Module):
         # Compute Inverse FFT   
         out_ft = torch.fft.ifftshift(out_ft, dim=self.dims[:-1])
 
-        if grid is None:
+        if grid is None: # (*)
             z = torch.fft.ifftn(out_ft, dim=self.dims[:-1])
         else: 
             z = inverseDFTn(out_ft, gridx, self.dims[:-1])

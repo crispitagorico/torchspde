@@ -61,7 +61,7 @@ class SPDEFunc2d(torch.nn.Module):
 
 class NeuralSPDE(torch.nn.Module):  
 
-    def __init__(self, dim, in_channels, noise_channels, hidden_channels, n_iter, modes1, modes2, modes3=None, grad_sol=False):
+    def __init__(self, dim, in_channels, noise_channels, hidden_channels, n_iter, modes1, modes2, modes3=None):
         super().__init__()
         """
         dim: dimension of spatial domain (1 or 2 for now)
@@ -69,7 +69,6 @@ class NeuralSPDE(torch.nn.Module):
         noise_channels: the dimension of the control state space
         hidden_channels: the dimension of the latent space
         modes1, modes2, (possibly modes 3): Fourier modes
-        grad_sol: whether one wants to compute gradients of the output/solution u(x,t)
         """
 
         assert dim in [1,2], 'dimension of spatial domain (1 or 2 for now)'
@@ -77,8 +76,6 @@ class NeuralSPDE(torch.nn.Module):
             assert modes3 is not None, 'specify modes3' 
         
         self.dim = dim
-
-        self.grad_sol = grad_sol
 
         # initial lift
         self.lift = nn.Linear(in_channels, hidden_channels)
@@ -92,6 +89,7 @@ class NeuralSPDE(torch.nn.Module):
         readout = [nn.Linear(hidden_channels, 128), nn.ReLU(), nn.Linear(128, in_channels)]
         self.readout = nn.Sequential(*readout)
 
+        # SPDE solver (for now Picard)
         self.solver = NeuralFixedPoint(self.spde_func, n_iter, modes1, modes2, modes3)
 
 

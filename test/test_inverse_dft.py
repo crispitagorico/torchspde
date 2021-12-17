@@ -79,6 +79,7 @@ def test_inverseDFT2D(dim_phys, modes, dim_fft):
     # check answers
     torch.testing.assert_allclose(ans_torch, ans_ours, rtol=1e-03, atol=1e-08)
 
+
 def test_NSPDE_inverseDFT1D():
 
     batch, dim_x, dim_t = 2, 32, 64
@@ -90,7 +91,7 @@ def test_NSPDE_inverseDFT1D():
     gridx = torch.tensor(np.linspace(0, 1, dim_x+1)[:-1], dtype=torch.float32).reshape(1, dim_x, 1).repeat(batch, 1, dim_t)
     grid = torch.stack([gridx, gridt], dim=-1)
 
-    model = NeuralSPDE(dim=1, in_channels=1, noise_channels=1, hidden_channels=16, n_iter=4, modes1=16, modes2=50, grad_sol=True).cuda()
+    model = NeuralSPDE(dim=1, in_channels=1, noise_channels=1, hidden_channels=16, n_iter=4, modes1=16, modes2=50).cuda()
 
     out_physicsinformed = model(u0.cuda(), xi.cuda(), grid.cuda())
     out = model(u0.cuda(), xi.cuda())
@@ -110,7 +111,7 @@ def test_NSPDE_inverseDFT2D():
     gridy = torch.tensor(np.linspace(0, 1, dim_y+1)[:-1], dtype=torch.float32).reshape(1, 1, dim_y, 1).repeat(batch, dim_x, 1, dim_t)
     grid = torch.stack([gridx, gridy, gridt], dim=-1)
 
-    model = NeuralSPDE(dim=2, in_channels=1, noise_channels=1, hidden_channels=8, n_iter=4, modes1=8, modes2=8, modes3=8, grad_sol=True).cuda()
+    model = NeuralSPDE(dim=2, in_channels=1, noise_channels=1, hidden_channels=8, n_iter=4, modes1=8, modes2=8, modes3=8).cuda()
     
     out_physicsinformed = model(u0.cuda(), xi.cuda(), grid.cuda())
     out = model(u0.cuda(), xi.cuda())
