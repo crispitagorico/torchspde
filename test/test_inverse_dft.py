@@ -1,7 +1,7 @@
 import pytest
 import torch
 import numpy as np
-from torchspde.solver_picard import inverseDFTn
+from torchspde.fixed_point_solver import inverseDFTn
 from torchspde.neural_spde import NeuralSPDE
 
 @pytest.mark.parametrize("dim_phys, modes, dim_fft", (([4, 8], None, [2]),

@@ -43,7 +43,7 @@ def laplacian(u_i, gridx, gridy):
     return grad_var(grad_var(u_i, gridx), gridx) + grad_var(grad_var(u_i, gridy), gridy)
 
 
-
+#def stqg_loss(u, gridt, gridx, gridy, W, b0, q0, psi0):
 
 
 #==========================

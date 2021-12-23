@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .solver_picard import NeuralFixedPoint 
+from .fixed_point_solver import NeuralFixedPoint 
 
 class SPDEFunc1d(torch.nn.Module):
     """ Modelling local operators F and G in (latent) SPDE (d_t - L)u = F(u)dt + G(u) dxi_t 
