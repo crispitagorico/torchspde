@@ -4,6 +4,34 @@ import torch.nn.functional as F
 from .fixed_point_solver import NeuralFixedPoint 
 from .diffeq_solver import DiffeqSolver
 
+class SPDEFunc0d(torch.nn.Module):
+    """ Modelling local operators F and G in (latent) SPDE (d_t - L)u = F(u)dt + G(u) dxi_t 
+    """
+
+    def __init__(self, noise_channels, hidden_channels):
+        """hidden_channels is d_h in the paper
+           noise_channels is d_xi in the paper 
+        """
+        super().__init__()
+        self.noise_channels = noise_channels
+        self.hidden_channels = hidden_channels
+
+        # local non-linearity F
+        model_F = [nn.Conv1d(hidden_channels, hidden_channels, 1), nn.BatchNorm1d(hidden_channels), nn.Tanh()]
+        self.F = nn.Sequential(*model_F)  
+
+        # local non-linearity G
+        model_G = [nn.Conv1d(hidden_channels, hidden_channels*noise_channels, 1), nn.BatchNorm1d(hidden_channels*noise_channels), nn.Tanh()]  
+        self.G = nn.Sequential(*model_G)
+
+    def forward(self, z):
+        """ z: (batch, hidden_channels, dim_x)
+        """
+
+        # TODO: add possibility to add the space-time grid
+        return self.F(z), self.G(z).view(z.size(0), self.hidden_channels, self.noise_channels, z.size(2))
+
+
 class SPDEFunc1d(torch.nn.Module):
     """ Modelling local operators F and G in (latent) SPDE (d_t - L)u = F(u)dt + G(u) dxi_t 
     """
@@ -89,9 +117,11 @@ class NeuralSPDE(torch.nn.Module):
         # initial lift
         self.lift = nn.Linear(in_channels, hidden_channels)
 
-        if dim==1:
+        if dim==1 and solver=='diffeq':
+            self.spde_func = SPDEFunc0d(noise_channels, hidden_channels)
+        if (dim==1 and solver=='fixed_point') or (dim==2 and solver=='diffeq'):
             self.spde_func = SPDEFunc1d(noise_channels, hidden_channels)
-        else:
+        if (dim==2 and solver=='fixed_point'):
             self.spde_func = SPDEFunc2d(noise_channels, hidden_channels)
 
         # linear projection
