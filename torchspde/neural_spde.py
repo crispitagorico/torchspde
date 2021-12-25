@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .fixed_point_solver import NeuralFixedPoint 
+from .diffeq_solver import DiffeqSolver
 
 class SPDEFunc1d(torch.nn.Module):
     """ Modelling local operators F and G in (latent) SPDE (d_t - L)u = F(u)dt + G(u) dxi_t 
@@ -61,7 +62,7 @@ class SPDEFunc2d(torch.nn.Module):
 
 class NeuralSPDE(torch.nn.Module):  
 
-    def __init__(self, dim, in_channels, noise_channels, hidden_channels, n_iter, modes1, modes2, modes3=None):
+    def __init__(self, dim, in_channels, noise_channels, hidden_channels, n_iter, modes1, modes2=None, modes3=None, solver='fixed_point', **kwargs):
         super().__init__()
         """
         dim: dimension of spatial domain (1 or 2 for now)
@@ -69,12 +70,20 @@ class NeuralSPDE(torch.nn.Module):
         noise_channels: the dimension of the control state space
         hidden_channels: the dimension of the latent space
         modes1, modes2, (possibly modes 3): Fourier modes
+        solver: 'fixed_point' or 'diffeq'
+        kwargs: Any additional kwargs to pass to the cdeint solver of torchdiffeq
         """
 
         assert dim in [1,2], 'dimension of spatial domain (1 or 2 for now)'
-        if dim==2:
-            assert modes3 is not None, 'specify modes3' 
-        
+        if dim == 2 and solver == 'fixed_point':
+            assert modes2 is not None and modes3 is not None, 'specify modes2 and modes3' 
+        if dim == 1 and solver == 'fixed_point':
+            assert modes2 is not None and modes3 is None, 'specify modes2 and modes3 should not be specified' 
+        if dim == 2 and solver == 'diffeq':
+            assert modes2 is not None, 'specify modes2' 
+        if dim == 1 and solver == 'diffeq':
+            assert modes2 is None, 'modes2 should not be specified' 
+
         self.dim = dim
 
         # initial lift
@@ -90,7 +99,10 @@ class NeuralSPDE(torch.nn.Module):
         self.readout = nn.Sequential(*readout)
 
         # SPDE solver (for now Picard)
-        self.solver = NeuralFixedPoint(self.spde_func, n_iter, modes1, modes2, modes3)
+        if solver=='fixed_point':
+            self.solver = NeuralFixedPoint(self.spde_func, n_iter, modes1, modes2, modes3)
+        elif solver=='diffeq':
+            self.solver = DiffeqSolver(hidden_channels, self.spde_func, modes1, modes2, **kwargs)
 
 
     def forward(self, u0, xi, grid=None):

@@ -134,32 +134,43 @@ class ControlledODE(torch.nn.Module):
 # SPDE solver: linear controlled differential equation solver in Fourier space.
 #=============================================================================================
 
-class FourierCDE(nn.Module):
-    def __init__(self, hidden_channels, spde_func, modes1, modes2=None):
-        super(FourierCDE, self).__init__()
+class DiffeqSolver(nn.Module):
+    def __init__(self, hidden_channels, spde_func, modes1, modes2=None, **kwargs):
+        super(DiffeqSolver, self).__init__()
 
         self.spde_func = spde_func
         
-        self.cde = LinearCDE(hidden_channels, modes1, modes2)
+        self.cde = ControlledODE(hidden_channels, modes1, modes2)
 
         self.flag1d = False if modes2 else True
         if self.flag1d:
             self.dims = [2]
+            self.modes = [modes1]
         else:
             self.dims = [2,3] 
-        self.freqs = [ (z.size(2+i)//2 - self.modes[i]//2, z.size(2+i)//2 + self.modes[i]//2) for i in range(len(self.modes)) ]
+            self.modes = [modes1, modes2]
 
-    def forward(self, z0, xi):
+        self.kwargs = kwargs
+
+    def forward(self, z0, xi, grid=None):
         """ - z0: (batch, hidden_channels, dim_x, (possibly dim_y))
             - xi: (batch, forcing_channels, dim_x, (possibly dim_y), dim_t)
+            - grid: should be speficied if computing gradients of the solution
         """
 
-        # compute fourier transform of initial condition  # TODO: antialisaing 
-        v0 = torch.fft.fftshift(torch.fft.fftn(z0, dim=self.dims), dim=self.dims) 
-        v0 = torch.stack([v0.real, v0.imag], dim=1) # (batch, 2, hidden_channels, dim_x, possibly dim_y)
+        # lower and upper bounds of selected frequencies
+        freqs = [ (z0.size(2+i)//2 - self.modes[i]//2, z0.size(2+i)//2 + self.modes[i]//2) for i in range(len(self.modes)) ]
 
-        out_ft = torch.zeros(v0.size(), device=z0.device, dtype=z0.dtype)
-        v0[:, :, :, freqs[0][0]:freqs[0][1], freqs[1][0]:freqs[1][1] ]  = v[:, :, :, freqs[0][0]:freqs[0][1], freqs[1][0]:freqs[1][1] ] 
+        # compute fourier transform of initial condition  
+        z0_ft = torch.fft.fftshift(torch.fft.fftn(z0, dim=self.dims), dim=self.dims) 
+        z0_ft = torch.stack([z0_ft.real, z0_ft.imag], dim=1) # (batch, 2, hidden_channels, dim_x, possibly dim_y)
+
+        # antialiasing (the highest modes are set to zero)  # TODO: would padding be more efficient?
+        v0 = torch.zeros(z0_ft.size(), device=z0.device, dtype=z0.dtype)
+        if self.flag1d:
+            v0[:, :, :, freqs[0][0]:freqs[0][1] ]  = z0_ft[:, :, :, freqs[0][0]:freqs[0][1] ] 
+        else:
+            v0[:, :, :, freqs[0][0]:freqs[0][1], freqs[1][0]:freqs[1][1] ]  = z0_ft[:, :, :, freqs[0][0]:freqs[0][1], freqs[1][0]:freqs[1][1] ] 
         
         # reshape for cdeint 
         if self.flag1d:
@@ -169,8 +180,8 @@ class FourierCDE(nn.Module):
             v0 = v0.permute(0,1,3,4,2) # (batch, 2, dim_x, dim_y, hidden_channels)
             xi = xi.permute(0,2,3,4,1) # (batch, dim_x, dim_y, dim_t, hidden_channels)
 
+        # interpolate xi so that it can be queried at any time t 
         xi = torchcde.linear_interpolation_coeffs(xi)
-
         xi = LinearInterpolation(xi) 
   
         # Solve the CDE,  get v of shape (batch, 2, dim_x, (possibly dim_y), dim_t, hidden_channels) 
@@ -178,7 +189,9 @@ class FourierCDE(nn.Module):
                             z0=v0,
                             func=self.cde,
                             method='euler',
-                            t=xi._t) 
+                            t=xi._t,
+                            adjoint = self.kwargs['adjoint'],
+                            **self.kwargs) 
 
         # Compute z = FFT^-1(v) 
         if self.flag1d:
