@@ -27,7 +27,7 @@ def compl_mul2d_time(func_fft, kernel_tensor):
 # (x,t) -> z(x,t) 
 #=============================================================================================
 
-def inverseDFTn(u_ft, grid, dim, s=None): #TODO: Not scalable. perform dft on each dimension one by one instead
+def inverseDFTn(u_ft, grid, dim, s=None): 
     # u_ft: (batch, channels, modesx, (possibly modesy), modest) 
     #    or (channels, channels, modesx, (possibly modesy), modest)
     # grid: (dim_x, (possibly dim_y), dim_t, d) d=len(dim)
@@ -66,23 +66,21 @@ def inverseDFTn(u_ft, grid, dim, s=None): #TODO: Not scalable. perform dft on ea
     grid = grid.reshape(shape)
     grid_freq = grid_freq.reshape(shape)
 
-    # put in last the dimensions to take the fft on 
     for i in range(len(dim)):
-        u_ft = u_ft.unsqueeze(len(dim) + dim[i])
-        grid = grid.unsqueeze(dim[i])
-        grid_freq = grid_freq.unsqueeze(len(dim) + dim[i])
+
+        u_ft_ = u_ft.unsqueeze(1 + dim[i])
+        grid_ = grid.unsqueeze(dim[i])
+        grid_freq_ = grid_freq.unsqueeze(1 + dim[i])
         
-    grid_prod = torch.sum(grid*grid_freq, dim=-1)    # grid_prod[k][j] = <x_j, s_k>  
+        grid_prod = grid_[..., i]*grid_freq_[..., i]    # grid_prod[k][j] = <x_j, s_k>  
     
-    # basis functions
-    basis = torch.exp(2.*np.pi*1j*grid_prod)  
+        # basis functions
+        basis = torch.exp(2.*np.pi*1j*grid_prod)  
 
-    # compute inverse DFT
-    u = torch.sum(u_ft*basis, axis=dim)/torch.prod(N) # devide by N[i] to match the ifft with norm='backward'
+        # compute inverse DFT
+        u_ft = torch.sum(u_ft_*basis, axis=dim[i])/N[i] # devide by N[i] to match the ifft with norm='backward'
 
-    return u
-
-    
+    return u_ft
 
 #=============================================================================================
 # Semigroup action is integration against a kernel
@@ -247,3 +245,59 @@ class NeuralFixedPoint(nn.Module):
             z = y
         
         return y
+
+
+
+# def inverseDFTn(u_ft, grid, dim, s=None): previous version of inverse dft, which did not scale.
+#     # u_ft: (batch, channels, modesx, (possibly modesy), modest) 
+#     #    or (channels, channels, modesx, (possibly modesy), modest)
+#     # grid: (dim_x, (possibly dim_y), dim_t, d) d=len(dim)
+#     # or    (dim_x, (possibly dim_y), d) d=len(dim)
+#     # or    (dim_t, 1)
+#     # u: (batch, channels, modesx, (possibly modesy), dim_t) 
+#     # or (batch, channels, dim_x, (possibly dim_y), dim_t)
+
+#     assert len(grid.size()) == len(dim) + 1, 'Error grid size '
+#     if dim == [-1]:
+#         dim = [len(u_ft.size())-1]
+
+#     new_size = np.array(u_ft.shape)
+#     if s is not None:
+#         assert len(s)==len(dim), "'s' should have the same length as 'dim'" 
+#         new_size[dim] = s
+
+#     # pad the input on axis i where s[i]>u_ft.shape[i] for i in dimensions where the dft is computed
+#     padding = np.concatenate([ [0, 0] if i not in dim else [0, new_size[i]-u_ft.shape[i]] for i in range(len(u_ft.shape)-1, -1, -1) ])
+#     u_ft = F.pad(u_ft, tuple(padding))
+
+#     # reciprocal frequency grid 
+#     N = torch.tensor(grid.size()[:-1], device=grid.device)
+#     with torch.no_grad():  
+#         if len(grid.shape) == 2: 
+#             delta = grid[1,:] - grid[0,:]
+#             grid_freq = grid/(delta**2*N)
+#         if len(grid.shape) == 3: 
+#             delta = grid[1,1,:] - grid[0,0,:]
+#             grid_freq = grid/(delta**2*N)     
+#         elif len(grid.shape) == 4: 
+#             delta = grid[1,1,1,:] - grid[0,0,0,:]  
+#             grid_freq = grid/(delta**2*N)  
+    
+#     shape = [u_ft.shape[i] if i in dim else 1 for i in range(len(u_ft.shape))]+[grid.shape[-1]]
+#     grid = grid.reshape(shape)
+#     grid_freq = grid_freq.reshape(shape)
+ 
+#     for i in range(len(dim)):
+#         u_ft = u_ft.unsqueeze(len(dim) + dim[i])
+#         grid = grid.unsqueeze(dim[i])
+#         grid_freq = grid_freq.unsqueeze(len(dim) + dim[i])
+        
+#     grid_prod = torch.sum(grid*grid_freq, dim=-1)    # grid_prod[k][j] = <x_j, s_k>  
+    
+#     # basis functions
+#     basis = torch.exp(2.*np.pi*1j*grid_prod)  
+
+#     # compute inverse DFT
+#     u = torch.sum(u_ft*basis, axis=dim)/torch.prod(N) # devide by N[i] to match the ifft with norm='backward'
+
+#     return u

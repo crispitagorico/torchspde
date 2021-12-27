@@ -101,7 +101,7 @@ def test_NSPDE_inverseDFT1D():
 
 
 def test_NSPDE_inverseDFT2D():
-    batch, dim_x, dim_y,  dim_t = 2, 16, 16, 10
+    batch, dim_x, dim_y,  dim_t = 2, 32, 32, 10
     u0 = torch.rand(batch, 1, dim_x, dim_y, dtype=torch.float32)
     xi = torch.rand(batch, 1, dim_x, dim_y, dim_t, dtype=torch.float32)
 
