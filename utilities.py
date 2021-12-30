@@ -115,6 +115,35 @@ def train_nspde_1d(model, train_loader, test_loader, device, myloss, batch_size=
         return model, losses_train, losses_test
 
 #===============================================================================
+# Plot solution at different time steps (1D)
+#===============================================================================
+def plot_1d(model, data_loader, device, i=1, T_=10, T=51, a=0):
+
+    for u0_, xi_, u_ in data_loader:
+        u0_ = u0_.to(device)
+        xi_ = xi_.to(device)
+        u_ = u_.to(device)
+        break
+
+    with torch.no_grad():
+        u_pred = model(u0_,xi_)
+
+    fig, ax = plt.subplots(1, T_, figsize=(T_*3, 3))
+
+    times = np.linspace(a, T-1, T_)
+    for j in range(T_):
+        t = int(times[j])
+        ax[j].plot(u_[i,...,t].detach().cpu().numpy(),label='true')
+        ax[j].plot(u_pred[i,0,...,t].detach().cpu().numpy(),label='pred')
+        ax[j].set_title(f'time step {j+1}')
+
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+
+#===============================================================================
 # Utilities (adapted from https://github.com/zongyi-li/fourier_neural_operator)
 #===============================================================================
 
@@ -310,48 +339,6 @@ def count_params(model):
     for p in list(model.parameters()):
         c += reduce(operator.mul, list(p.size()))
     return c
-
-
-
-# normalization, pointwise gaussian
-class UnitGaussianNormalizer(object):
-    def __init__(self, x, eps=0.00001):
-        super(UnitGaussianNormalizer, self).__init__()
-
-        # x could be in shape of ntrain*n or ntrain*T*n or ntrain*n*T
-        self.mean = torch.mean(x, 0)
-        self.std = torch.std(x, 0)
-        self.eps = eps
-
-    def encode(self, x):
-        x = (x - self.mean) / (self.std + self.eps)
-        return x
-
-    def decode(self, x, sample_idx=None):
-        if sample_idx is None:
-            std = self.std + self.eps # n
-            mean = self.mean
-        else:
-            if len(self.mean.shape) == len(sample_idx[0].shape):
-                std = self.std[sample_idx] + self.eps  # batch*n
-                mean = self.mean[sample_idx]
-            if len(self.mean.shape) > len(sample_idx[0].shape):
-                std = self.std[:,sample_idx]+ self.eps # T*batch*n
-                mean = self.mean[:,sample_idx]
-
-        # x is in shape of batch*n or T*batch*n
-        x = (x * std) + mean
-        return x
-
-    def cuda(self):
-        self.mean = self.mean.cuda()
-        self.std = self.std.cuda()
-
-    def cpu(self):
-        self.mean = self.mean.cpu()
-        self.std = self.std.cpu()
-
-
 
 
 ###################
