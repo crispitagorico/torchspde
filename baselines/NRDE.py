@@ -51,9 +51,9 @@ class CDEFunc(torch.nn.Module):
 ######################
 # Next, we need to package CDEFunc up into a model that computes the integral.
 ######################
-class NeuralCDE(torch.nn.Module):
+class NeuralRDE(torch.nn.Module):
     def __init__(self, control_channels, input_channels, hidden_channels, output_channels, interval, interpolation="linear"):
-        super(NeuralCDE, self).__init__()
+        super(NeuralRDE, self).__init__()
 
         self.func = CDEFunc(control_channels, hidden_channels)
         self.initial = torch.nn.Linear(input_channels, hidden_channels)
@@ -152,7 +152,7 @@ def dataloader_nrde_1d(u, xi, ntrain=1000, ntest=200, T=51, sub_t=1, batch_size=
     train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(u0_train, xi_train, u_train), batch_size=batch_size, shuffle=True)
     test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(u0_test, xi_test, u_test), batch_size=batch_size, shuffle=False)
 
-    return train_loader, test_loader, interval, normalizer
+    return train_loader, test_loader, interval, xi_train.size(-1), normalizer
 
 #===========================================================================
 # Training functionalities (same as NCDE)
