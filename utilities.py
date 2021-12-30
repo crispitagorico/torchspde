@@ -1,11 +1,13 @@
 import torch
-import numpy as np
 import scipy.io
 import h5py
+import operator
+import numpy as np
 import torch.nn as nn
 import matplotlib.pyplot as plt
-
-import operator
+import matplotlib as mpl
+from matplotlib.gridspec import SubplotSpec
+from matplotlib.ticker import MaxNLocator
 from functools import reduce
 from functools import partial
 
@@ -46,8 +48,6 @@ def dataloader_nspde_1d(u, xi=None, ntrain=1000, ntest=200, T=51, sub_t=1, batch
     test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(u0_test, xi_test, u_test), batch_size=batch_size, shuffle=False)
 
     return train_loader, test_loader
-
-
 
 #===========================================================================
 # Training functionalities
@@ -141,6 +141,48 @@ def plot_1d(model, data_loader, device, i=1, T_=10, T=51, a=0):
     plt.tight_layout()
     plt.show()
 
+def create_subtitle(fig: plt.Figure, grid: SubplotSpec, title: str):
+    "Sign sets of subplots with title"
+    row = fig.add_subplot(grid)
+    # the '\n' is important
+    row.set_title(f'{title}\n', fontweight='bold', fontsize=34)
+    # hide subplot
+    row.set_frame_on(False)
+    row.axis('off')
+
+def contour_plot_1d(model, data_loader, device, O_X, O_T, save_file=None):
+    
+    mpl.rcParams['xtick.major.pad'] = 8
+    mpl.rcParams['ytick.major.pad'] = 8
+    fig, ax = plt.subplots(2, 3, figsize=(20,10))
+    x_m, t_m = np.meshgrid(O_T, O_X)
+
+    for u0_, xi_, u_ in data_loader:
+        u0_ = u0_.to(device)
+        xi_ = xi_.to(device)
+        u_ = u_.to(device)
+        break
+
+    with torch.no_grad():
+        u_pred = model(u0_,xi_)
+
+    for i in range(3):
+        ax[0][i].contourf(x_m,t_m, u_[i].cpu().numpy(), 50, cmap=plt.cm.jet)
+        ax[1][i].contourf(x_m,t_m, u_pred[i,0,...].cpu().numpy(), 50, cmap=plt.cm.jet)
+        ax[0][i].set_xlabel('t')
+        ax[0][i].set_ylabel('x')
+        ax[1][i].set_xlabel('t')
+        ax[1][i].set_ylabel('x')
+
+    grid = plt.GridSpec(2, 3)
+    create_subtitle(fig, grid[0, ::], 'Ground truth solutions')
+    create_subtitle(fig, grid[1, ::], 'Predicted solutions with the Neural SPDE model')
+    plt.tight_layout()
+
+    if save_file is not None:
+        plt.savefig(save_file,bbox_inches='tight')
+
+    plt.show()
 
 
 #===============================================================================
