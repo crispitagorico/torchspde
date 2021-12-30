@@ -235,7 +235,7 @@ def train_fno_1d(model, train_loader, test_loader, device, myloss, batch_size=20
             model.train()
             
             train_loss = 0.
-            for xi_, u_ in train_loader:
+            for xi_, u_ in train_loader: 
 
                 loss = 0.
                 xi_ = xi_.to(device)
