@@ -24,20 +24,20 @@ def dataloader_nspde_1d(u, xi=None, ntrain=1000, ntest=200, T=51, sub_t=1, batch
     elif dataset=='wave':
         T, sub_t = (u.shape[-1]+1)//2, 5
 
-    u0_train = u[:ntrain, :-1, 0].unsqueeze(1)
-    u_train = u[:ntrain, :-1, :T:sub_t]
+    u0_train = u[:ntrain, :dim_x, 0].unsqueeze(1)
+    u_train = u[:ntrain, :dim_x, :T:sub_t]
 
     if xi is not None:
-        xi_train = torch.diff(xi[:ntrain, :-1, T:sub_t], dim=-1).unsqueeze(1)
-        xi_train = torch.cat([torch.zeros_like(xi_train[...,0].unsqueeze(-1)), xi_train], dim=-1)
+        xi_train = torch.diff(xi[:ntrain, :dim_x, 0:T:sub_t], dim=-1).unsqueeze(1)
+        xi_train = torch.cat([torch.zeros_like(xi_train[..., 0].unsqueeze(-1)), xi_train], dim=-1)
     else:
         xi_train = torch.zeros_like(u_train)
 
-    u0_test = u[-ntest:, :-1, 0].unsqueeze(1)
-    u_test = u[-ntrain:, :-1, :T:sub_t]
+    u0_test = u[-ntest:, :dim_x, 0].unsqueeze(1)
+    u_test = u[-ntest:, :dim_x, 0:T:sub_t]
 
     if xi is not None:
-        xi_test = torch.diff(xi[-ntest:, :-1, T:sub_t], dim=-1).unsqueeze(1)
+        xi_test = torch.diff(xi[-ntest:, :dim_x, 0:T:sub_t], dim=-1).unsqueeze(1)
         xi_test = torch.cat([torch.zeros_like(xi_test[..., 0].unsqueeze(-1)), xi_test], dim=-1)
     else:
         xi_test = torch.zeros_like(u_test)
@@ -53,7 +53,7 @@ def dataloader_nspde_1d(u, xi=None, ntrain=1000, ntest=200, T=51, sub_t=1, batch
 # Training functionalities
 #===========================================================================
 
-def train_nspde_1d(model, train_loader, test_loader, device, loss, batch_size=20, epochs=5000, learning_rate=0.001, scheduler_step=100, scheduler_gamma=0.5, print_every=20):
+def train_nspde_1d(model, train_loader, test_loader, device, myloss, batch_size=20, epochs=5000, learning_rate=0.001, scheduler_step=100, scheduler_gamma=0.5, print_every=20):
 
 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
@@ -81,8 +81,7 @@ def train_nspde_1d(model, train_loader, test_loader, device, loss, batch_size=20
                 u_ = u_.to(device)
 
                 u_pred = model(u0_, xi_)
-                u_pred = u_pred[..., 0]
-                loss = loss(u_pred[..., 1:].reshape(batch_size, -1), u_[..., 1:].reshape(batch_size, -1))
+                loss = myloss(u_pred[..., 1:].reshape(batch_size, -1), u_[..., 1:].reshape(batch_size, -1))
 
                 train_loss += loss.item()
                 loss.backward()
@@ -100,8 +99,7 @@ def train_nspde_1d(model, train_loader, test_loader, device, loss, batch_size=20
                     u_ = u_.to(device)
 
                     u_pred = model(u0_, xi_)
-                    u_pred = u_pred[..., 0]
-                    loss = loss(u_pred[..., 1:].reshape(batch_size, -1), u_[..., 1:].reshape(batch_size, -1))
+                    loss = myloss(u_pred[..., 1:].reshape(batch_size, -1), u_[..., 1:].reshape(batch_size, -1))
 
                     test_loss += loss.item()
 
