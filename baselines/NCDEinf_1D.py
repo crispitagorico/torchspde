@@ -226,7 +226,7 @@ def compl_mul1d_spatial(a, b):
 # Data Loaders
 #===========================================================================
 
-def dataloader_ncdeinf_1d(u, xi, ntrain=1000, ntest=200, T=51, sub_t=1, batch_size=20, dim_x=128, normalizer=True, interpolation='linear', dataset=None):
+def dataloader_ncdeinf_1d(u, xi, ntrain=1000, ntest=200, T=51, sub_t=1, batch_size=20, dim_x=128, normalizer=False, interpolation='linear', dataset=None):
 
     if dataset=='phi41':
         T, sub_t = 51, 1
@@ -245,6 +245,15 @@ def dataloader_ncdeinf_1d(u, xi, ntrain=1000, ntest=200, T=51, sub_t=1, batch_si
     t = torch.linspace(0., T, T)[None, None, :, None].repeat(ntest, 1, 1, dim_x)
     # xi_test = torch.cat([t, xi_test],dim=1)
 
+    if normalizer:
+        xi_normalizer = UnitGaussianNormalizer(xi_train)
+        xi_train = xi_normalizer.encode(xi_train)
+        xi_test = xi_normalizer.encode(xi_test)
+
+        u_normalizer = UnitGaussianNormalizer(u_train)
+        u_train = u_normalizer.encode(u_train)
+        u_test = u_normalizer.encode(u_test)
+
     u0_train = u_train[:, :, 0] #(N, 1, dim_x)  
     u0_test = u_test[:, :, 0]  #(N, 1, dim_x)
 
@@ -262,7 +271,7 @@ def dataloader_ncdeinf_1d(u, xi, ntrain=1000, ntest=200, T=51, sub_t=1, batch_si
     train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(u0_train, xi_train, u_train), batch_size=batch_size, shuffle=True)
     test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(u0_test, xi_test, u_test), batch_size=batch_size, shuffle=False)
 
-    return train_loader, test_loader 
+    return train_loader, test_loader, u_normalizer 
 
 
 #===========================================================================
