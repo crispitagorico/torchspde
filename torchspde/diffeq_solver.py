@@ -199,7 +199,6 @@ class DiffeqSolver(nn.Module):
         v = torchcde.cdeint(X=xi,
                             z0=v0,
                             func=self.cde,
-                            method='euler',
                             t=xi._t,
                             # adjoint = self.kwargs['adjoint'],
                             **self.kwargs) 
