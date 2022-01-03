@@ -90,7 +90,7 @@ class SPDEFunc2d(torch.nn.Module):
 
 class NeuralSPDE(torch.nn.Module):  
 
-    def __init__(self, dim, in_channels, noise_channels, hidden_channels, n_iter, modes1, modes2=None, modes3=None, solver='fixed_point', **kwargs):
+    def __init__(self, dim, in_channels, noise_channels, hidden_channels, modes1, modes2=None, modes3=None, n_iter=4, solver='fixed_point', **kwargs):
         super().__init__()
         """
         dim: dimension of spatial domain (1 or 2 for now)
