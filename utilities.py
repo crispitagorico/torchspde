@@ -51,13 +51,13 @@ def dataloader_nspde_1d(u, xi=None, ntrain=1000, ntest=200, T=51, sub_t=1, batch
     return train_loader, test_loader
 
 
-def dataloader_nspde_2d(u, xi=None, ntrain=1000, ntest=200, T=51, sub_t=1, sub_x=1, batch_size=20, dataset=None):
+def dataloader_nspde_2d(u, xi=None, ntrain=1000, ntest=200, T=51, sub_t=1, sub_x=4, batch_size=20, dataset=None):
 
     if xi is None:
         print('There is no known forcing')
 
     if dataset=='sns':
-        T, sub_t = 51, 1
+        T, sub_t, sub_x = 51, 1, 4
 
     u0_train = u[:ntrain, ::sub_x, ::sub_x, 0].unsqueeze(1)
     u_train = u[:ntrain, ::sub_x, ::sub_x, :T:sub_t]
