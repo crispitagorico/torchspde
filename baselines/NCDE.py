@@ -141,11 +141,54 @@ def dataloader_ncde_1d(u, xi, ntrain=1000, ntest=200, T=51, sub_t=1, batch_size=
 
     return train_loader, test_loader, u_normalizer
 
+
+def dataloader_ncde_2d(u, xi, ntrain=1000, ntest=200, T=51, sub_t=1, sub_x=1, batch_size=20, normalizer=True, interpolation='linear', dataset=None):
+
+    if dataset=='sns':
+        T, sub_t, sub_x = 100, 1, 4
+    dim_x = u.size(1)//sub_x
+
+    u0_train = u[:ntrain, ::sub_x, ::sub_x, 0].reshape(ntrain, dim_x*dim_x)
+    u_train = u[:ntrain, ::sub_x, ::sub_x, 0:T:sub_t].reshape(ntrain, dim_x*dim_x, -1).permute(0,2,1)
+    xi_train = xi[:ntrain, ::sub_x, ::sub_x, 0:T:sub_t].reshape(ntrain, dim_x*dim_x, -1).permute(0,2,1)
+
+    t = torch.linspace(0., T, T)[None,:,None].repeat(ntrain,1,1)
+    xi_train = torch.cat([t,xi_train], dim=2)
+
+    u0_test = u[-ntest:, ::sub_x, ::sub_x, 0].reshape(ntest, dim_x*dim_x)
+    u_test = u[-ntest:, ::sub_x, ::sub_x, 0:T:sub_t].reshape(ntest, dim_x*dim_x, -1).permute(0,2,1)
+    xi_test = xi[-ntest:, ::sub_x, ::sub_x, 0:T:sub_t].reshape(ntest, dim_x*dim_x, -1).permute(0,2,1)
+
+    if normalizer:
+        xi_normalizer = UnitGaussianNormalizer(xi_train)
+        xi_train = xi_normalizer.encode(xi_train)
+        xi_test = xi_normalizer.encode(xi_test)
+
+        u_normalizer = UnitGaussianNormalizer(u_train)
+        u_train = u_normalizer.encode(u_train)
+        u_test = u_normalizer.encode(u_test)
+
+    u0_train = u_train[:, 0, :]
+    u0_test = u_test[:, 0, :]
+
+    # interpolation
+    if interpolation=='linear':
+        xi_train = torchcde.linear_interpolation_coeffs(xi_train)
+        xi_test = torchcde.linear_interpolation_coeffs(xi_test)
+    elif interpolation=='cubic':
+        xi_train = torchcde.hermite_cubic_coefficients_with_backward_differences(xi_train)
+        xi_test = torchcde.hermite_cubic_coefficients_with_backward_differences(xi_test)
+
+    train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(u0_train, xi_train, u_train), batch_size=batch_size, shuffle=True)
+    test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(u0_test, xi_test, u_test), batch_size=batch_size, shuffle=False)
+
+    return train_loader, test_loader, u_normalizer
+
 #===========================================================================
 # Training functionalities
 #===========================================================================
 
-def train_ncde_1d(model, train_loader, test_loader, u_normalizer, device, myloss, batch_size=20, epochs=5000, learning_rate=0.001, scheduler_step=100, scheduler_gamma=0.5, print_every=20):
+def train_ncde(model, train_loader, test_loader, u_normalizer, device, myloss, batch_size=20, epochs=5000, learning_rate=0.001, scheduler_step=100, scheduler_gamma=0.5, print_every=20):
 
 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)

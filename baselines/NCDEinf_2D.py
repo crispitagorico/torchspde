@@ -223,3 +223,112 @@ def compl_mul2d_spatial(a, b):
     """ ...
     """
     return torch.einsum("aibc, ijbc -> ajbc", a, b)
+
+
+
+#===========================================================================
+# Data Loaders
+#===========================================================================
+
+def dataloader_ncdeinf_2d(u, xi, ntrain=1000, ntest=200, T=51, sub_t=1, sub_x=1, batch_size=20, interpolation='linear', dataset=None):
+
+    if dataset=='sns':
+        T, sub_t, sub_x = 100, 1, 4
+    dim_x = u.size(1)//sub_x
+
+    u_train = u[:ntrain, ::sub_x, ::sub_x, 0:T:sub_t].permute(0, 3, 1, 2).unsqueeze(1) #(N, 1, dim_t, dim_x, dim_y)
+    xi_train = xi[:ntrain, ::sub_x, ::sub_x, 0:T].permute(0, 3, 1, 2).unsqueeze(1) #(N, 1, dim_t, dim_x, dim_y)
+
+    u_test = u[-ntest:, ::sub_x, ::sub_x, 0:T:sub_t].permute(0, 3, 1, 2).unsqueeze(1) #(N, 1, dim_t, dim_x, dim_y)
+    xi_test = xi[-ntest:, ::sub_x, ::sub_x, 0:T].permute(0, 3, 1, 2).unsqueeze(1) #(N, 1, dim_t, dim_x, dim_y)
+
+    u0_train = u_train[:, :, 0, :, :] #(N, 1, dim_x, dim_y)  
+    u0_test = u_test[:, :, 0, :, :]  #(N, 1, dim_x, dim_y)
+
+    # interpolation 
+    xi_train = torchcde.linear_interpolation_coeffs(xi_train)
+    xi_test = torchcde.linear_interpolation_coeffs(xi_test)
+
+    # interpolation 
+    if interpolation == 'linear':
+        xi_train = torchcde.linear_interpolation_coeffs(xi_train)
+        xi_test = torchcde.linear_interpolation_coeffs(xi_test)
+    elif interpolation == 'cubic':
+        xi_train = torchcde.hermite_cubic_coefficients_with_backward_differences(xi_train)
+        xi_test = torchcde.hermite_cubic_coefficients_with_backward_differences(xi_test)
+
+    xi_train = xi_train.permute(0, 3, 4, 2, 1)  #(N, dim_x, dim_t, 1)
+    xi_test = xi_test.permute(0, 3, 4, 2, 1)  #(N, dim_x, dim_t, 1)
+
+    train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(u0_train, xi_train, u_train), batch_size=batch_size, shuffle=True)
+    test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(u0_test, xi_test, u_test), batch_size=batch_size, shuffle=False)
+
+    return train_loader, test_loader
+
+
+#===========================================================================
+# Training functionalities
+#===========================================================================
+
+def train_ncdeinf_2d(model, train_loader, test_loader, device, myloss, batch_size=20, epochs=5000, learning_rate=0.001, scheduler_step=100, scheduler_gamma=0.5, print_every=20):
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=scheduler_step, gamma=scheduler_gamma)
+
+    ntrain = len(train_loader.dataset)
+    ntest = len(test_loader.dataset)
+
+    losses_train = []
+    losses_test = []
+
+    try:
+            
+        for ep in range(epochs):
+
+            model.train()
+            
+            train_loss = 0.
+            for u0_, xi_, u_ in train_loader:
+
+                loss = 0.
+                
+                u0_ = u0_.to(device)
+                xi_ = xi_.to(device)
+                u_ = u_.to(device)
+
+                u_pred = model(u0_, xi_)
+                
+                loss = myloss(u_pred[:, :, 1:, :, :].reshape(batch_size, -1), u_[:, :, 1:, :, :].reshape(batch_size, -1))
+
+                train_loss += loss.item()
+                loss.backward()
+                optimizer.step()
+                optimizer.zero_grad()
+
+            test_loss = 0.
+            with torch.no_grad():
+                for u0_, xi_, u_ in test_loader:
+                    
+                    loss = 0.
+                    
+                    u0_ = u0_.to(device)
+                    xi_ = xi_.to(device)
+                    u_ = u_.to(device)
+
+                    u_pred = model(u0_, xi_)
+
+                    loss = myloss(u_pred[:, :, 1:, :, :].reshape(batch_size, -1), u_[:, :, 1:, :, :].reshape(batch_size, -1))
+                    test_loss += loss.item()
+
+            scheduler.step()
+            if ep % print_every == 0:
+                losses_train.append(train_loss/ntrain)
+                losses_test.append(test_loss/ntest)
+                print('Epoch {:04d} | Total Train Loss {:.6f} | Total Test Loss {:.6f}'.format(ep, train_loss / ntrain, test_loss / ntest))
+
+        return model, losses_train, losses_test
+    
+    except KeyboardInterrupt:
+
+        return model, losses_train, losses_test
+

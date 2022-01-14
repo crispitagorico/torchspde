@@ -9,7 +9,8 @@ import matplotlib as mpl
 from matplotlib.gridspec import SubplotSpec
 from matplotlib.ticker import MaxNLocator
 from functools import reduce
-from functools import partial
+from functools import partial 
+from timeit import default_timer
 
 
 #===========================================================================
@@ -49,11 +50,41 @@ def dataloader_nspde_1d(u, xi=None, ntrain=1000, ntest=200, T=51, sub_t=1, batch
 
     return train_loader, test_loader
 
+
+def dataloader_nspde_2d(u, xi=None, ntrain=1000, ntest=200, T=51, sub_t=1, sub_x=1, batch_size=20, dataset=None):
+
+    if xi is None:
+        print('There is no known forcing')
+
+    if dataset=='sns':
+        T, sub_t = 51, 1
+
+    u0_train = u[:ntrain, ::sub_x, ::sub_x, 0].unsqueeze(1)
+    u_train = u[:ntrain, ::sub_x, ::sub_x, :T:sub_t]
+
+    if xi is not None:
+        xi_train = xi[:ntrain, ::sub_x, ::sub_x, 0:T:sub_t].unsqueeze(1)
+    else:
+        xi_train = torch.zeros_like(u_train)
+
+    u0_test = u[-ntest:, ::sub_x, ::sub_x, 0].unsqueeze(1)
+    u_test = u[-ntest:, ::sub_x, ::sub_x, 0:T:sub_t]
+
+    if xi is not None:
+        xi_test = xi[-ntest:, ::sub_x, ::sub_x, 0:T:sub_t].unsqueeze(1)
+    else:
+        xi_test = torch.zeros_like(u_test)
+
+    train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(u0_train, xi_train, u_train), batch_size=batch_size, shuffle=True)
+    test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(u0_test, xi_test, u_test), batch_size=batch_size, shuffle=False)
+
+    return train_loader, test_loader
+
 #===========================================================================
 # Training functionalities
 #===========================================================================
 
-def train_nspde_1d(model, train_loader, test_loader, device, myloss, batch_size=20, epochs=5000, learning_rate=0.001, scheduler_step=100, scheduler_gamma=0.5, print_every=20):
+def train_nspde(model, train_loader, test_loader, device, myloss, batch_size=20, epochs=5000, learning_rate=0.001, scheduler_step=100, scheduler_gamma=0.5, print_every=20, time_train=False, time_eval=False):
 
 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
@@ -64,6 +95,9 @@ def train_nspde_1d(model, train_loader, test_loader, device, myloss, batch_size=
 
     losses_train = []
     losses_test = []
+
+    times_train = [] 
+    times_eval = []
 
     try:
 
@@ -80,6 +114,7 @@ def train_nspde_1d(model, train_loader, test_loader, device, myloss, batch_size=
                 xi_ = xi_.to(device)
                 u_ = u_.to(device)
 
+                t1 = default_timer()
                 u_pred = model(u0_, xi_)
                 loss = myloss(u_pred[..., 1:].reshape(batch_size, -1), u_[..., 1:].reshape(batch_size, -1))
 
@@ -87,6 +122,8 @@ def train_nspde_1d(model, train_loader, test_loader, device, myloss, batch_size=
                 loss.backward()
                 optimizer.step()
                 optimizer.zero_grad()
+
+                times_train.append(default_timer()-t1)
 
             test_loss = 0.
             with torch.no_grad():
@@ -98,7 +135,12 @@ def train_nspde_1d(model, train_loader, test_loader, device, myloss, batch_size=
                     xi_ = xi_.to(device)
                     u_ = u_.to(device)
 
+                    t1 = default_timer()
+
                     u_pred = model(u0_, xi_)
+
+                    times_eval.append(default_timer()-t1)
+
                     loss = myloss(u_pred[..., 1:].reshape(batch_size, -1), u_[..., 1:].reshape(batch_size, -1))
 
                     test_loss += loss.item()
@@ -108,11 +150,25 @@ def train_nspde_1d(model, train_loader, test_loader, device, myloss, batch_size=
                 losses_train.append(train_loss/ntrain)
                 losses_test.append(test_loss/ntest)
                 print('Epoch {:04d} | Total Train Loss {:.6f} | Total Test Loss {:.6f}'.format(ep, train_loss / ntrain, test_loss / ntest))
-        return model, losses_train, losses_test
+
+        if time_train and time_eval:
+            return model, losses_train, losses_test, times_train, times_eval 
+        elif time_train and not time_eval:
+            return model, losses_train, losses_test, times_train
+        elif time_eval and not time_train:
+            return model, losses_train, losses_test, times_eval 
+        else:
+            return model, losses_train, losses_test
         
     except KeyboardInterrupt:
-
-        return model, losses_train, losses_test
+        if time_train and time_eval:
+            return model, losses_train, losses_test, times_train, times_eval 
+        elif time_train and not time_eval:
+            return model, losses_train, losses_test, times_train
+        elif time_eval and not time_train:
+            return model, losses_train, losses_test, times_eval 
+        else:
+            return model, losses_train, losses_test
 
 #===============================================================================
 # Plot solution at different time steps (1D)

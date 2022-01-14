@@ -162,3 +162,112 @@ class FNO_space2D_time(nn.Module):
         gridz = torch.tensor(np.linspace(0, 1, size_z), dtype=torch.float)
         gridz = gridz.reshape(1, 1, 1, size_z, 1).repeat([batchsize, size_x, size_y, 1, 1])
         return torch.cat((gridx, gridy, gridz), dim=-1).to(device)
+
+
+#===========================================================================
+# Data Loaders
+#===========================================================================
+
+def dataloader_fno_2d_xi(u, xi, ntrain=1000, ntest=200, T=51, sub_x=128, sub_t=1, batch_size=20, dataset=None):
+
+    if dataset=='sns':    
+        T, sub_t, sub_x = 100, 1, 4
+
+    dim_x = u.size(1)//sub_x
+    dim_t = T//sub_t
+
+    u_train = u[:ntrain, ::sub_x, ::sub_x, 0:T:sub_t]
+    xi_train = xi[:ntrain, ::sub_x, ::sub_x, 0:T:sub_t].reshape(ntrain, dim_x, dim_x, 1, T).repeat([1, 1, 1, dim_t, 1])
+    
+
+    u_test = u[-ntest:, ::sub_x, ::sub_x, 0:T:sub_t]
+    xi_test = xi[-ntest:, ::sub_x, ::sub_x, 0:T:sub_t].reshape(ntest, dim_x, dim_x, 1, T).repeat([1, 1, 1, dim_t, 1])
+
+    train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(xi_train, u_train), batch_size=batch_size, shuffle=True)
+    test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(xi_test, u_test), batch_size=batch_size, shuffle=False)
+
+    return train_loader, test_loader
+
+def dataloader_fno_2d_u0(u, ntrain=1000, ntest=200, T=51, sub_t=1, sub_x=4, batch_size=20, dataset=None):
+
+    if dataset=='sns':
+        T, sub_t, sub_x = 100, 1, 4
+
+    u_train = u[:ntrain, ::sub_x, ::sub_x, 0:T:sub_t]
+    u0_train = u[:ntrain,::sub_x, ::sub_x, 0].unsqueeze(-1).unsqueeze(-1) 
+    u0_train = u0_train.repeat([1,1,1,T//sub_t,1])
+
+    u_test = u[-ntest:, ::sub_x, ::sub_x, 0:T:sub_t]
+    u0_test = u[-ntest:, ::sub_x, ::sub_x, 0].unsqueeze(-1).unsqueeze(-1) 
+    u0_test = u0_test.repeat([1,1,1,T//sub_t,1])
+
+    train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(u0_train, u_train), batch_size=batch_size, shuffle=True)
+    test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(u0_test, u_test), batch_size=batch_size, shuffle=False)
+
+    return train_loader, test_loader
+
+
+#===========================================================================
+# Training functionalities
+#===========================================================================
+
+def train_fno_2d(model, train_loader, test_loader, device, myloss, batch_size=20, epochs=5000, learning_rate=0.001, scheduler_step=100, scheduler_gamma=0.5, print_every=20):
+
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=scheduler_step, gamma=scheduler_gamma)
+
+    ntrain = len(train_loader.dataset)
+    ntest = len(test_loader.dataset)
+
+    losses_train = []
+    losses_test = []
+
+    try:
+            
+        for ep in range(epochs):
+
+            model.train()
+            
+            train_loss = 0.
+            for xi_, u_ in train_loader: 
+
+                loss = 0.
+                xi_ = xi_.to(device)
+                u_ = u_.to(device)
+
+                u_pred = model(xi_)
+                u_pred = u_pred[..., 0]
+                loss = myloss(u_pred[..., 1:].reshape(batch_size, -1), u_[..., 1:].reshape(batch_size, -1))
+
+                train_loss += loss.item()
+                loss.backward()
+                optimizer.step()
+                optimizer.zero_grad()
+
+            test_loss = 0.
+            with torch.no_grad():
+                for xi_, u_ in test_loader:
+                    
+                    loss = 0.
+                    
+                    xi_ = xi_.to(device)
+                    u_ = u_.to(device)
+
+                    u_pred = model(xi_)
+                    u_pred = u_pred[..., 0]
+                    loss = myloss(u_pred[..., 1:].reshape(batch_size, -1), u_[..., 1:].reshape(batch_size, -1))
+
+                    test_loss += loss.item()
+
+            scheduler.step()
+            if ep % print_every == 0:
+                losses_train.append(train_loss/ntrain)
+                losses_test.append(test_loss/ntest)
+                print('Epoch {:04d} | Total Train Loss {:.6f} | Total Test Loss {:.6f}'.format(ep, train_loss / ntrain, test_loss / ntest))
+
+        return model, losses_train, losses_test
+    
+    except KeyboardInterrupt:
+
+        return model, losses_train, losses_test
