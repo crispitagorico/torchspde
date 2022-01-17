@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .fixed_point_solver import NeuralFixedPoint 
+from .root_find_solver import NeuralRootFind
 from .diffeq_solver import DiffeqSolver
 
 class SPDEFunc0d(torch.nn.Module):
@@ -98,7 +99,7 @@ class NeuralSPDE(torch.nn.Module):
         noise_channels: the dimension of the control state space
         hidden_channels: the dimension of the latent space
         modes1, modes2, (possibly modes 3): Fourier modes
-        solver: 'fixed_point' or 'diffeq'
+        solver: 'fixed_point', 'root_find' or 'diffeq'
         kwargs: Any additional kwargs to pass to the cdeint solver of torchdiffeq
         """
 
@@ -133,6 +134,8 @@ class NeuralSPDE(torch.nn.Module):
             self.solver = NeuralFixedPoint(self.spde_func, n_iter, modes1, modes2, modes3)
         elif solver=='diffeq':
             self.solver = DiffeqSolver(hidden_channels, self.spde_func, modes1, modes2, **kwargs)
+        elif solver=='root_find':
+            self.solver = NeuralRootFind(self.spde_func, n_iter, modes1, modes2, modes3, **kwargs)
 
 
     def forward(self, u0, xi, grid=None):
