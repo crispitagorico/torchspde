@@ -104,9 +104,9 @@ class NeuralSPDE(torch.nn.Module):
         """
 
         assert dim in [1,2], 'dimension of spatial domain (1 or 2 for now)'
-        if dim == 2 and solver == 'fixed_point':
+        if dim == 2 and solver in ['fixed_point', 'root_find']:
             assert modes2 is not None and modes3 is not None, 'specify modes2 and modes3' 
-        if dim == 1 and solver == 'fixed_point':
+        if dim == 1 and solver in ['fixed_point', 'root_find']:
             assert modes2 is not None and modes3 is None, 'specify modes2 and modes3 should not be specified' 
         if dim == 2 and solver == 'diffeq':
             assert modes2 is not None, 'specify modes2' 
@@ -120,9 +120,9 @@ class NeuralSPDE(torch.nn.Module):
 
         if dim==1 and solver=='diffeq':
             self.spde_func = SPDEFunc0d(noise_channels, hidden_channels)
-        if (dim==1 and solver=='fixed_point') or (dim==2 and solver=='diffeq'):
+        if (dim==1 and solver in ['fixed_point', 'root_find']) or (dim==2 and solver=='diffeq'):
             self.spde_func = SPDEFunc1d(noise_channels, hidden_channels)
-        if (dim==2 and solver=='fixed_point'):
+        if (dim==2 and solver in ['fixed_point', 'root_find']):
             self.spde_func = SPDEFunc2d(noise_channels, hidden_channels)
 
         # linear projection

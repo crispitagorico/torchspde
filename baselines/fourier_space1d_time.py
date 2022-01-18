@@ -179,12 +179,12 @@ def dataloader_fno_1d_xi(u, xi, ntrain=1000, ntest=200, T=51, sub_t=1, batch_siz
     u_train = u[:ntrain, :dim_x, 0:T:sub_t]
     xi_ = torch.diff(xi[:ntrain, :dim_x, 0:T:sub_t], dim=-1) 
     xi_ = torch.cat([torch.zeros_like(xi_[..., 0].unsqueeze(-1)), xi_], dim=-1)
-    xi_train = xi_[:ntrain].reshape(ntrain, dim_x, 1, T).repeat([1, 1, T, 1])
+    xi_train = xi_[:ntrain].reshape(ntrain, dim_x, 1, xi_.shape[-1]).repeat([1, 1, xi_.shape[-1], 1])
 
     u_test = u[-ntest:, :dim_x, 0:T:sub_t]
     xi_ = torch.diff(xi[-ntest:, :dim_x, 0:T:sub_t], dim=-1) 
     xi_ = torch.cat([torch.zeros_like(xi_[..., 0].unsqueeze(-1)), xi_], dim=-1)
-    xi_test = xi_[-ntest:].reshape(ntest, dim_x, 1, T).repeat([1, 1, T, 1])
+    xi_test = xi_[-ntest:].reshape(ntest, dim_x, 1, xi_.shape[-1]).repeat([1, 1, xi_.shape[-1], 1])
 
     train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(xi_train, u_train), batch_size=batch_size, shuffle=True)
     test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(xi_test, u_test), batch_size=batch_size, shuffle=False)
