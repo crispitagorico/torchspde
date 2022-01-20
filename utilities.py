@@ -1,7 +1,9 @@
 import torch
 import scipy.io
 import h5py
+import csv
 import operator
+import itertools
 import numpy as np
 import torch.nn as nn
 import matplotlib.pyplot as plt
@@ -11,7 +13,7 @@ from matplotlib.ticker import MaxNLocator
 from functools import reduce
 from functools import partial 
 from timeit import default_timer
-
+from torchspde.neural_spde import NeuralSPDE
 
 #===========================================================================
 # Data Loaders for Neural SPDE
@@ -34,7 +36,7 @@ def dataloader_nspde_1d(u, xi=None, ntrain=1000, ntest=200, T=51, sub_t=1, batch
         xi_train = torch.diff(xi[:ntrain, :dim_x, 0:T:sub_t], dim=-1).unsqueeze(1)
         xi_train = torch.cat([torch.zeros_like(xi_train[..., 0].unsqueeze(-1)), xi_train], dim=-1)
     else:
-        xi_train = torch.zeros_like(u_train)
+        xi_train = torch.zeros_like(u_train).unsqueeze(1)
 
     u0_test = u[-ntest:, :dim_x, 0].unsqueeze(1)
     u_test = u[-ntest:, :dim_x, 0:T:sub_t]
@@ -42,6 +44,37 @@ def dataloader_nspde_1d(u, xi=None, ntrain=1000, ntest=200, T=51, sub_t=1, batch
     if xi is not None:
         xi_test = torch.diff(xi[-ntest:, :dim_x, 0:T:sub_t], dim=-1).unsqueeze(1)
         xi_test = torch.cat([torch.zeros_like(xi_test[..., 0].unsqueeze(-1)), xi_test], dim=-1)
+    else:
+        xi_test = torch.zeros_like(u_test).unsqueeze(1)
+
+    train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(u0_train, xi_train, u_train), batch_size=batch_size, shuffle=True)
+    test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(u0_test, xi_test, u_test), batch_size=batch_size, shuffle=False)
+
+    return train_loader, test_loader
+
+def dataloader_nspde_diffeq_1d(u, xi=None, ntrain=1000, ntest=200, T=51, sub_t=1, batch_size=20, dim_x=128, dataset=None):
+
+    if xi is None:
+        print('There is no known forcing')
+
+    if dataset=='phi41':
+        T, sub_t = 51, 1
+    elif dataset=='wave':
+        T, sub_t = (u.shape[-1]+1)//2, 5
+
+    u0_train = u[:ntrain, :dim_x, 0].unsqueeze(1)
+    u_train = u[:ntrain, :dim_x, :T:sub_t]
+
+    if xi is not None:
+        xi_train = xi[:ntrain, :dim_x, 0:T:sub_t].unsqueeze(1)
+    else:
+        xi_train = torch.zeros_like(u_train)
+
+    u0_test = u[-ntest:, :dim_x, 0].unsqueeze(1)
+    u_test = u[-ntest:, :dim_x, 0:T:sub_t]
+
+    if xi is not None:
+        xi_test = xi[-ntest:, :dim_x, 0:T:sub_t].unsqueeze(1)
     else:
         xi_test = torch.zeros_like(u_test)
 
@@ -84,11 +117,17 @@ def dataloader_nspde_2d(u, xi=None, ntrain=1000, ntest=200, T=51, sub_t=1, sub_x
 # Training functionalities
 #===========================================================================
 
-def train_nspde(model, train_loader, test_loader, device, myloss, batch_size=20, epochs=5000, learning_rate=0.001, scheduler_step=100, scheduler_gamma=0.5, print_every=20, time_train=False, time_eval=False):
+def train_nspde(model, train_loader, test_loader, device, myloss, batch_size=20, epochs=5000, learning_rate=0.001, scheduler_step=100, scheduler_gamma=0.5, print_every=20, plateau_patience=None, plateau_terminate=None, time_train=False, time_eval=False):
 
 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=scheduler_step, gamma=scheduler_gamma)
+
+    if plateau_patience is None:
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=scheduler_step, gamma=scheduler_gamma)
+    else:
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=plateau_patience, threshold=1e-6, min_lr=1e-7)
+    if plateau_terminate is not None:
+        early_stopping = EarlyStopping(patience=plateau_terminate, verbose=False)
 
     ntrain = len(train_loader.dataset)
     ntest = len(test_loader.dataset)
@@ -144,8 +183,18 @@ def train_nspde(model, train_loader, test_loader, device, myloss, batch_size=20,
                     loss = myloss(u_pred[..., 1:].reshape(batch_size, -1), u_[..., 1:].reshape(batch_size, -1))
 
                     test_loss += loss.item()
+            
+            if plateau_patience is None:
+                scheduler.step()
+            else:
+                scheduler.step(test_loss/ntest)
+            if plateau_terminate is not None:
+                early_stopping(test_loss/ntest, model)
+                if early_stopping.early_stop:
+                    print("Early stopping")
+                    break
+        
 
-            scheduler.step()
             if ep % print_every == 0:
                 losses_train.append(train_loss/ntrain)
                 losses_test.append(test_loss/ntest)
@@ -169,6 +218,92 @@ def train_nspde(model, train_loader, test_loader, device, myloss, batch_size=20,
             return model, losses_train, losses_test, times_eval 
         else:
             return model, losses_train, losses_test
+
+
+
+def hyperparameter_search(train_loader, val_loader, d_h=[16,32], iter=[1,2,3], modes1=[32,64], modes2=[32,64], epochs=500, print_every=20, lr=0.025, plateau_patience=None, plateau_terminate=None, filename='log_nspde'):
+
+    hyperparams = list(itertools.product(d_h, iter, modes1, modes2))
+
+    loss = LpLoss(size_average=False)
+    
+    fieldnames = ['d_h', 'iter', 'modes1', 'modes2', 'nb_params', 'loss_train', 'loss_val']
+    with open(filename, 'w', encoding='UTF8', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(fieldnames)
+        
+
+    for (_dh, _iter, _modes1, _modes2) in hyperparams:
+        
+        print('\n dh:{}, iter:{}, modes1:{}, modes2:{}'.format(_dh, _iter, _modes1, _modes2))
+
+        model = NeuralSPDE(dim=1, in_channels=1, noise_channels=1, hidden_channels=_dh, 
+                   n_iter=_iter, modes1=_modes1, modes2=_modes2).cuda()
+
+        nb_params = count_params(model)
+        
+        print('\n The model has {} parameters'. format(nb_params))
+
+        model, losses_train, losses_val = train_nspde(model, train_loader, val_loader, device, loss, batch_size=20, epochs=epochs, learning_rate=lr, scheduler_step=500, scheduler_gamma=0.5, plateau_patience=plateau_patience, plateau_terminate=plateau_terminate, print_every=print_every)
+
+        # write results
+        with open(filename, 'a', encoding='UTF8', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([_dh, _iter, _modes1, _modes2, nb_params, losses_train[-1], losses_val[-1]])
+
+
+
+
+class EarlyStopping:
+    """Early stops the training if validation loss doesn't improve after a given patience."""
+    def __init__(self, patience=7, verbose=False, delta=0, path='checkpoint.pt', trace_func=print):
+        """
+        Args:
+            patience (int): How long to wait after last time validation loss improved.
+                            Default: 7
+            verbose (bool): If True, prints a message for each validation loss improvement. 
+                            Default: False
+            delta (float): Minimum change in the monitored quantity to qualify as an improvement.
+                            Default: 0
+            path (str): Path for the checkpoint to be saved to.
+                            Default: 'checkpoint.pt'
+            trace_func (function): trace print function.
+                            Default: print            
+        """
+        self.patience = patience
+        self.verbose = verbose
+        self.counter = 0
+        self.best_score = None
+        self.early_stop = False
+        self.val_loss_min = np.Inf
+        self.delta = delta
+        self.path = path
+        self.trace_func = trace_func
+
+    def __call__(self, val_loss, model):
+
+        score = -val_loss
+
+        if self.best_score is None:
+            self.best_score = score
+            self.save_checkpoint(val_loss, model)
+        elif score < self.best_score + self.delta:
+            self.counter += 1
+            # self.trace_func(f'EarlyStopping counter: {self.counter} out of {self.patience}')
+            if self.counter >= self.patience:
+                self.early_stop = True
+        else:
+            self.best_score = score
+            # self.save_checkpoint(val_loss, model)
+            self.counter = 0
+
+    def save_checkpoint(self, val_loss, model):
+        '''Saves model when validation loss decrease.'''
+        if self.verbose:
+            self.trace_func(f'Validation loss decreased ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ...')
+        torch.save(model.state_dict(), self.path)
+        self.val_loss_min = val_loss
+
 
 #===============================================================================
 # Plot solution at different time steps (1D)

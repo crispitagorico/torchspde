@@ -1,13 +1,16 @@
 # adapted from https://github.com/zongyi-li/fourier_neural_operator
 
 import torch
+import csv
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 
 import operator
+import itertools
 from functools import reduce
 from functools import partial
+
 
 #===========================================================================
 # 2d fourier layers
@@ -216,11 +219,16 @@ def dataloader_fno_1d_u0(u, ntrain=1000, ntest=200, T=51, sub_t=1, batch_size=20
 # Training functionalities
 #===========================================================================
 
-def train_fno_1d(model, train_loader, test_loader, device, myloss, batch_size=20, epochs=5000, learning_rate=0.001, scheduler_step=100, scheduler_gamma=0.5, print_every=20):
+def train_fno_1d(model, train_loader, test_loader, device, myloss, batch_size=20, epochs=5000, learning_rate=0.001, scheduler_step=100, scheduler_gamma=0.5, plateau_patience=None, plateau_terminate=None, print_every=20):
 
 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=scheduler_step, gamma=scheduler_gamma)
+    if plateau_patience is None:
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=scheduler_step, gamma=scheduler_gamma)
+    else:
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=plateau_patience, threshold=1e-6, min_lr=1e-7)
+    if plateau_terminate is not None:
+        early_stopping = EarlyStopping(patience=plateau_terminate, verbose=False)
 
     ntrain = len(train_loader.dataset)
     ntest = len(test_loader.dataset)
@@ -265,7 +273,16 @@ def train_fno_1d(model, train_loader, test_loader, device, myloss, batch_size=20
 
                     test_loss += loss.item()
 
-            scheduler.step()
+            if plateau_patience is None:
+                scheduler.step()
+            else:
+                scheduler.step(test_loss/ntest)
+            if plateau_terminate is not None:
+                early_stopping(test_loss/ntest, model)
+                if early_stopping.early_stop:
+                    print("Early stopping")
+                    break
+                
             if ep % print_every == 0:
                 losses_train.append(train_loss/ntrain)
                 losses_test.append(test_loss/ntest)
@@ -276,3 +293,37 @@ def train_fno_1d(model, train_loader, test_loader, device, myloss, batch_size=20
     except KeyboardInterrupt:
 
         return model, losses_train, losses_test
+
+
+def hyperparameter_search(train_loader, val_loader, T, d_h=[16,32], L=[1,2,3], modes1=[32,64], modes2=[32,64], epochs=500, print_every=20, lr=0.025, plateau_patience=None, plateau_terminate=None, filename='log_fno'):
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    hyperparams = list(itertools.product(d_h, L, modes1, modes2))
+
+    loss = LpLoss(size_average=False)
+    
+    fieldnames = ['d_h', 'L', 'modes1', 'modes2', 'nb_params', 'loss_train', 'loss_val']
+    with open(filename, 'w', encoding='UTF8', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(fieldnames)
+        
+
+    for (_dh, _L, _modes1, _modes2) in hyperparams:
+        
+        print('\n dh:{}, L:{}, modes1:{}, modes2:{}'.format(_dh, _L, _modes1, _modes2))
+
+        model = FNO_space1D_time(modes1=_modes1, modes2=_modes2, width=_dh, T=T, L=_L).cuda()
+
+        nb_params = count_params(model)
+        
+        print('\n The model has {} parameters'. format(nb_params))
+
+        model, losses_train, losses_val = train_fno_1d(model, train_loader, val_loader, device, loss, batch_size=20, epochs=epochs, learning_rate=lr, scheduler_step=500, scheduler_gamma=0.5, plateau_patience=plateau_patience, plateau_terminate=plateau_terminate, print_every=print_every)
+
+        # write results
+        with open(filename, 'a', encoding='UTF8', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([_dh, _L, _modes1, _modes2, nb_params, losses_train[-1], losses_val[-1]])
+
+
