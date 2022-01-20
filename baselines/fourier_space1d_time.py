@@ -11,6 +11,7 @@ import itertools
 from functools import reduce
 from functools import partial
 
+from utilities import LpLoss, count_params, EarlyStopping
 
 #===========================================================================
 # 2d fourier layers
@@ -282,7 +283,7 @@ def train_fno_1d(model, train_loader, test_loader, device, myloss, batch_size=20
                 if early_stopping.early_stop:
                     print("Early stopping")
                     break
-                
+
             if ep % print_every == 0:
                 losses_train.append(train_loss/ntrain)
                 losses_test.append(test_loss/ntest)
@@ -299,9 +300,9 @@ def hyperparameter_search(train_loader, val_loader, T, d_h=[16,32], L=[1,2,3], m
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    hyperparams = list(itertools.product(d_h, L, modes1, modes2))
-
     loss = LpLoss(size_average=False)
+
+    hyperparams = list(itertools.product(d_h, L, modes1, modes2))
     
     fieldnames = ['d_h', 'L', 'modes1', 'modes2', 'nb_params', 'loss_train', 'loss_val']
     with open(filename, 'w', encoding='UTF8', newline='') as f:
