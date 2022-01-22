@@ -261,7 +261,7 @@ def hyperparameter_search(train_dl, val_dl, test_dl, d_h=[32], iter=[1,2,3], mod
         print('\n The model has {} parameters'. format(nb_params))
 
         # Train the model. The best model is checkpointed.
-        _, _, _ = train_nspde(model, train_dl, val_dl, device, loss, batch_size=20, epochs=epochs, learning_rate=lr, scheduler_step=500, scheduler_gamma=0.5, plateau_patience=plateau_patience, plateau_terminate=plateau_terminate, print_every=print_every, checkpoint_file='checkpoint.pt')
+        _, _, _ = train_nspde(model, train_dl, val_dl, device, loss, batch_size=20, epochs=epochs, learning_rate=lr, scheduler_step=500, scheduler_gamma=0.5, plateau_patience=plateau_patience, plateau_terminate=plateau_terminate, print_every=print_every, checkpoint_file=checkpoint_file)
         
         # load the best trained model 
         model = model.load_state_dict(torch.load(checkpoint_file)).cuda()
