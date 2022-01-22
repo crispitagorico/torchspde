@@ -276,6 +276,7 @@ def hyperparameter_search(train_dl, val_dl, test_dl, d_h=[32], iter=[1,2,3], mod
         # if this configuration of hyperparameters is the best so far (determined wihtout using the test set), save it 
         if loss_val < best_loss_val:
             torch.save(model.state_dict(), final_checkpoint_file)
+            best_loss_val = loss_val
 
         # write results
         with open(log_file, 'a', encoding='UTF8', newline='') as f:
