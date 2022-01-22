@@ -114,10 +114,24 @@ def dataloader_nspde_2d(u, xi=None, ntrain=1000, ntest=200, T=51, sub_t=1, sub_x
     return train_loader, test_loader
 
 #===========================================================================
-# Training functionalities
+# Training and Testing functionalities
 #===========================================================================
 
-def train_nspde(model, train_loader, test_loader, device, myloss, batch_size=20, epochs=5000, learning_rate=0.001, scheduler_step=100, scheduler_gamma=0.5, print_every=20, plateau_patience=None, plateau_terminate=None, time_train=False, time_eval=False):
+def eval_nspde(model, test_dl, myloss, batch_size, device):
+
+    ntest = len(test_dl.dataset)
+    test_loss = 0.
+    with torch.no_grad():
+        for u0_, xi_, u_ in test_dl:    
+            loss = 0.       
+            u0_, xi_, u_ = u0_.to(device), xi_.to(device), u_.to(device)
+            u_pred = model(u0_, xi_)
+            loss = myloss(u_pred[...,1:].reshape(batch_size, -1), u_[...,1:].reshape(batch_size, -1))
+            test_loss += loss.item()
+    print('Test Loss: {:.6f}'.format(test_loss / ntest))
+    return test_loss / ntest
+
+def train_nspde(model, train_loader, test_loader, device, myloss, batch_size=20, epochs=5000, learning_rate=0.001, scheduler_step=100, scheduler_gamma=0.5, print_every=20, plateau_patience=None, plateau_terminate=None, time_train=False, time_eval=False, checkpoint_file='checkpoint.pt'):
 
 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
@@ -127,7 +141,7 @@ def train_nspde(model, train_loader, test_loader, device, myloss, batch_size=20,
     else:
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=plateau_patience, threshold=1e-6, min_lr=1e-7)
     if plateau_terminate is not None:
-        early_stopping = EarlyStopping(patience=plateau_terminate, verbose=False)
+        early_stopping = EarlyStopping(patience=plateau_terminate, verbose=False, path=checkpoint_file)
 
     ntrain = len(train_loader.dataset)
     ntest = len(test_loader.dataset)
@@ -221,17 +235,19 @@ def train_nspde(model, train_loader, test_loader, device, myloss, batch_size=20,
 
 
 
-def hyperparameter_search(train_loader, val_loader, d_h=[16,32], iter=[1,2,3], modes1=[32,64], modes2=[32,64], epochs=500, print_every=20, lr=0.025, plateau_patience=None, plateau_terminate=None, filename='log_nspde'):
+def hyperparameter_search(train_dl, val_dl, test_dl, d_h=[32], iter=[1,2,3], modes1=[32,64], modes2=[32,64], epochs=500, print_every=20, lr=0.025, plateau_patience=100, plateau_terminate=100, log_file ='log_nspde', checkpoint_file='checkpoint.pt', final_checkpoint_file='final.pt'):
 
     hyperparams = list(itertools.product(d_h, iter, modes1, modes2))
 
     loss = LpLoss(size_average=False)
     
-    fieldnames = ['d_h', 'iter', 'modes1', 'modes2', 'nb_params', 'loss_train', 'loss_val']
-    with open(filename, 'w', encoding='UTF8', newline='') as f:
+    fieldnames = ['d_h', 'iter', 'modes1', 'modes2', 'nb_params', 'loss_train', 'loss_val', 'loss_test']
+    with open(log_file, 'w', encoding='UTF8', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(fieldnames)
         
+
+    best_loss_val = 1000.
 
     for (_dh, _iter, _modes1, _modes2) in hyperparams:
         
@@ -244,12 +260,27 @@ def hyperparameter_search(train_loader, val_loader, d_h=[16,32], iter=[1,2,3], m
         
         print('\n The model has {} parameters'. format(nb_params))
 
-        model, losses_train, losses_val = train_nspde(model, train_loader, val_loader, device, loss, batch_size=20, epochs=epochs, learning_rate=lr, scheduler_step=500, scheduler_gamma=0.5, plateau_patience=plateau_patience, plateau_terminate=plateau_terminate, print_every=print_every)
+        # Train the model. The best model is checkpointed.
+        _, _, _ = train_nspde(model, train_dl, val_dl, device, loss, batch_size=20, epochs=epochs, learning_rate=lr, scheduler_step=500, scheduler_gamma=0.5, plateau_patience=plateau_patience, plateau_terminate=plateau_terminate, print_every=print_every, checkpoint_file='checkpoint.pt')
+        
+        # load the best trained model 
+        model = model.load_state_dict(torch.load(checkpoint_file)).cuda()
+        
+        # compute the test loss 
+        loss_test = eval_nspde(model, test_dl, loss, 20, device)
+
+        # we also recompute the validation and train loss
+        loss_train = eval_nspde(model, train_dl, loss, 20, device)
+        loss_val = eval_nspde(model, val_dl, loss, 20, device)
+
+        # if this configuration of hyperparameters is the best so far (determined wihtout using the test set), save it 
+        if loss_val < best_loss_val:
+            torch.save(model.state_dict(), final_checkpoint_file)
 
         # write results
-        with open(filename, 'a', encoding='UTF8', newline='') as f:
+        with open(log_file, 'a', encoding='UTF8', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow([_dh, _iter, _modes1, _modes2, nb_params, losses_train[-1], losses_val[-1]])
+            writer.writerow([_dh, _iter, _modes1, _modes2, nb_params, loss_train, loss_val, loss_test])
 
 
 
@@ -287,14 +318,14 @@ class EarlyStopping:
         if self.best_score is None:
             self.best_score = score
             self.save_checkpoint(val_loss, model)
-        elif score < self.best_score + self.delta:
+        elif score < self.best_score + self.delta:   
             self.counter += 1
             # self.trace_func(f'EarlyStopping counter: {self.counter} out of {self.patience}')
             if self.counter >= self.patience:
                 self.early_stop = True
         else:
             self.best_score = score
-            # self.save_checkpoint(val_loss, model)
+            self.save_checkpoint(val_loss, model)
             self.counter = 0
 
     def save_checkpoint(self, val_loss, model):
