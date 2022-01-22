@@ -217,10 +217,24 @@ def dataloader_fno_1d_u0(u, ntrain=1000, ntest=200, T=51, sub_t=1, batch_size=20
 
 
 #===========================================================================
-# Training functionalities
+# Training and Testing functionalities
 #===========================================================================
+def eval_fno_1d(model, test_dl, myloss, batch_size, device):
 
-def train_fno_1d(model, train_loader, test_loader, device, myloss, batch_size=20, epochs=5000, learning_rate=0.001, scheduler_step=100, scheduler_gamma=0.5, plateau_patience=None, plateau_terminate=None, print_every=20):
+    ntest = len(test_dl.dataset)
+    test_loss = 0.
+    with torch.no_grad():
+        for u0_, xi_, u_ in test_dl:    
+            loss = 0.       
+            xi_, u_ = xi_.to(device), u_.to(device)
+            u_pred = model(xi_)
+            u_pred = u_pred[..., 0]
+            loss = myloss(u_pred[..., 1:].reshape(batch_size, -1), u_[..., 1:].reshape(batch_size, -1)) 
+            test_loss += loss.item()
+    print('Test Loss: {:.6f}'.format(test_loss / ntest))
+    return test_loss / ntest
+
+def train_fno_1d(model, train_loader, test_loader, device, myloss, batch_size=20, epochs=5000, learning_rate=0.001, scheduler_step=100, scheduler_gamma=0.5, plateau_patience=None, plateau_terminate=None, print_every=20, checkpoint_file='checkpoint.pt'):
 
 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
@@ -229,7 +243,7 @@ def train_fno_1d(model, train_loader, test_loader, device, myloss, batch_size=20
     else:
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=plateau_patience, threshold=1e-6, min_lr=1e-7)
     if plateau_terminate is not None:
-        early_stopping = EarlyStopping(patience=plateau_terminate, verbose=False)
+        early_stopping = EarlyStopping(patience=plateau_terminate, verbose=False, path=checkpoint_file)
 
     ntrain = len(train_loader.dataset)
     ntest = len(test_loader.dataset)
@@ -296,35 +310,52 @@ def train_fno_1d(model, train_loader, test_loader, device, myloss, batch_size=20
         return model, losses_train, losses_test
 
 
-def hyperparameter_search(train_loader, val_loader, T, d_h=[16,32], L=[1,2,3], modes1=[32,64], modes2=[32,64], epochs=500, print_every=20, lr=0.025, plateau_patience=None, plateau_terminate=None, filename='log_fno'):
+def hyperparameter_search(train_dl, val_dl, test_dl, T, d_h=[32], iter=[1,2,3], modes1=[32,64], modes2=[32,64], epochs=500, print_every=20, lr=0.025, plateau_patience=100, plateau_terminate=100, log_file ='log_nspde', checkpoint_file='checkpoint.pt', final_checkpoint_file='final.pt'):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    loss = LpLoss(size_average=False)
+    hyperparams = list(itertools.product(d_h, iter, modes1, modes2))
 
-    hyperparams = list(itertools.product(d_h, L, modes1, modes2))
+    loss = LpLoss(size_average=False)
     
-    fieldnames = ['d_h', 'L', 'modes1', 'modes2', 'nb_params', 'loss_train', 'loss_val']
-    with open(filename, 'w', encoding='UTF8', newline='') as f:
+    fieldnames = ['d_h', 'L', 'modes1', 'modes2', 'nb_params', 'loss_train', 'loss_val', 'loss_test']
+    with open(log_file, 'w', encoding='UTF8', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(fieldnames)
         
 
-    for (_dh, _L, _modes1, _modes2) in hyperparams:
-        
-        print('\n dh:{}, L:{}, modes1:{}, modes2:{}'.format(_dh, _L, _modes1, _modes2))
+    best_loss_val = 1000.
 
-        model = FNO_space1D_time(modes1=_modes1, modes2=_modes2, width=_dh, T=T, L=_L).cuda()
+    for (_dh, _iter, _modes1, _modes2) in hyperparams:
+        
+        print('\n dh:{}, iter:{}, modes1:{}, modes2:{}'.format(_dh, _iter, _modes1, _modes2))
+
+        model = FNO_space1D_time(modes1=_modes1, modes2=_modes2, width=_dh, T=T, L=_iter).cuda()
 
         nb_params = count_params(model)
         
         print('\n The model has {} parameters'. format(nb_params))
 
-        model, losses_train, losses_val = train_fno_1d(model, train_loader, val_loader, device, loss, batch_size=20, epochs=epochs, learning_rate=lr, scheduler_step=500, scheduler_gamma=0.5, plateau_patience=plateau_patience, plateau_terminate=plateau_terminate, print_every=print_every)
+        # Train the model. The best model is checkpointed.
+        
+        _, _, _ = train_fno_1d(model, train_dl, val_dl, device, loss, batch_size=20, epochs=epochs, learning_rate=lr, scheduler_step=500, scheduler_gamma=0.5, plateau_patience=plateau_patience, plateau_terminate=plateau_terminate, print_every=print_every, checkpoint_file=checkpoint_file)
+        # load the best trained model 
+        model.load_state_dict(torch.load(checkpoint_file))
+        
+        # compute the test loss 
+        loss_test = eval_fno_1d(model, test_dl, loss, 20, device)
+
+        # we also recompute the validation and train loss
+        loss_train = eval_fno_1d(model, train_dl, loss, 20, device)
+        loss_val = eval_fno_1d(model, val_dl, loss, 20, device)
+
+        # if this configuration of hyperparameters is the best so far (determined wihtout using the test set), save it 
+        if loss_val < best_loss_val:
+            torch.save(model.state_dict(), final_checkpoint_file)
+            best_loss_val = loss_val
 
         # write results
-        with open(filename, 'a', encoding='UTF8', newline='') as f:
+        with open(log_file, 'a', encoding='UTF8', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow([_dh, _L, _modes1, _modes2, nb_params, losses_train[-1], losses_val[-1]])
-
+            writer.writerow([_dh, _iter, _modes1, _modes2, nb_params, loss_train, loss_val, loss_test])
 
