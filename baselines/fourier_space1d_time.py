@@ -224,7 +224,7 @@ def eval_fno_1d(model, test_dl, myloss, batch_size, device):
     ntest = len(test_dl.dataset)
     test_loss = 0.
     with torch.no_grad():
-        for u0_, xi_, u_ in test_dl:    
+        for xi_, u_ in test_dl:    
             loss = 0.       
             xi_, u_ = xi_.to(device), u_.to(device)
             u_pred = model(xi_)
