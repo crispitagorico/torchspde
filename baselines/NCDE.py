@@ -1,9 +1,12 @@
 # adapted from https://github.com/patrick-kidger/NeuralCDE
 
 import torch
-import numpy as np
 import torchcde
+import csv
+import itertools
+import numpy as np
 from .utils import UnitGaussianNormalizer
+from utilities import LpLoss, count_params, EarlyStopping
 
 #===============================================================================================================
 # A CDE model looks like
@@ -185,14 +188,37 @@ def dataloader_ncde_2d(u, xi, ntrain=1000, ntest=200, T=51, sub_t=1, sub_x=1, ba
     return train_loader, test_loader, u_normalizer
 
 #===========================================================================
-# Training functionalities
+# Training and testing functionalities
 #===========================================================================
+def eval_ncde(model, test_dl, myloss, batch_size, device, u_normalizer=None):
 
-def train_ncde(model, train_loader, test_loader, u_normalizer, device, myloss, batch_size=20, epochs=5000, learning_rate=0.001, scheduler_step=100, scheduler_gamma=0.5, print_every=20):
+    ntest = len(test_dl.dataset)
+    test_loss = 0.
+    with torch.no_grad():
+        for u0_, xi_, u_ in test_dl:    
+            loss = 0.       
+            u0_, xi_, u_ = u0_.to(device), xi_.to(device), u_.to(device)
+            u_pred = model(u0_, xi_)
 
+            if u_normalizer is not None:
+                u_pred = u_normalizer.decode(u_pred.cpu())
+                u_ = u_normalizer.decode(u_.cpu())
+
+            loss = myloss(u_pred[:, 1:, :].reshape(batch_size, -1), u_[:, 1:, :].reshape(batch_size, -1))
+            test_loss += loss.item()
+    print('Test Loss: {:.6f}'.format(test_loss / ntest))
+    return test_loss / ntest
+
+def train_ncde(model, train_loader, test_loader, u_normalizer, device, myloss, batch_size=20, epochs=5000, learning_rate=0.001, scheduler_step=100, scheduler_gamma=0.5, print_every=20, plateau_patience=None, plateau_terminate=None, checkpoint_file='checkpoint.pt'):
 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=scheduler_step, gamma=scheduler_gamma)
+
+    if plateau_patience is None:
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=scheduler_step, gamma=scheduler_gamma)
+    else:
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=plateau_patience, threshold=1e-6, min_lr=1e-7)
+    if plateau_terminate is not None:
+        early_stopping = EarlyStopping(patience=plateau_terminate, verbose=False, path=checkpoint_file)
 
     ntrain = len(train_loader.dataset)
     ntest = len(test_loader.dataset)
@@ -247,8 +273,17 @@ def train_ncde(model, train_loader, test_loader, u_normalizer, device, myloss, b
                     loss = myloss(u_pred[:, 1:, :].reshape(batch_size, -1), u_[:, 1:, :].reshape(batch_size, -1))
 
                     test_loss += loss.item()
+            
+            if plateau_patience is None:
+                scheduler.step()
+            else:
+                scheduler.step(test_loss/ntest)
+            if plateau_terminate is not None:
+                early_stopping(test_loss/ntest, model)
+                if early_stopping.early_stop:
+                    print("Early stopping")
+                    break
 
-            scheduler.step()
             if ep % print_every == 0:
                 losses_train.append(train_loss/ntrain)
                 losses_test.append(test_loss/ntest)
@@ -259,3 +294,52 @@ def train_ncde(model, train_loader, test_loader, u_normalizer, device, myloss, b
     except KeyboardInterrupt:
 
         return model, losses_train, losses_test
+
+def hyperparameter_search(train_dl, val_dl, test_dl, dim_x, u_normalizer=None, d_h=[32], epochs=500, print_every=20, lr=0.025, plateau_patience=100, plateau_terminate=100, log_file ='log_nspde', checkpoint_file='checkpoint.pt', final_checkpoint_file='final.pt'):
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    hyperparams = d_h #list(itertools.product(d_h))
+
+    loss = LpLoss(size_average=False)
+    
+    fieldnames = ['d_h', 'nb_params', 'loss_train', 'loss_val', 'loss_test']
+    with open(log_file, 'w', encoding='UTF8', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(fieldnames)
+        
+    best_loss_val = 1000.
+
+    for _dh in hyperparams:
+        
+        print('\n dh:{}'.format(_dh))
+
+        model = NeuralCDE(input_channels=dim_x+1, hidden_channels=_dh, output_channels=dim_x, 
+                  interpolation='linear').cuda()
+        nb_params = count_params(model)
+        
+        print('\n The model has {} parameters'. format(nb_params))
+
+        # Train the model. The best model is checkpointed.
+        _, _, _ = train_ncde(model, train_dl, val_dl, u_normalizer, device, loss, batch_size=20, epochs=epochs, learning_rate=lr, scheduler_step=500, scheduler_gamma=0.5, print_every=print_every, plateau_patience=plateau_patience, plateau_terminate=plateau_terminate, checkpoint_file=checkpoint_file)
+
+        # load the best trained model 
+        model.load_state_dict(torch.load(checkpoint_file))
+        
+        # compute the test loss 
+        loss_test = eval_ncde(model, test_dl, loss, 20, device, u_normalizer=u_normalizer)
+
+        # we also recompute the validation and train loss
+        loss_train = eval_ncde(model, train_dl, loss, 20, device, u_normalizer=u_normalizer)
+        loss_val = eval_ncde(model, val_dl, loss, 20, device, u_normalizer=u_normalizer)
+
+        # if this configuration of hyperparameters is the best so far (determined wihtout using the test set), save it 
+        if loss_val < best_loss_val:
+            torch.save(model.state_dict(), final_checkpoint_file)
+            best_loss_val = loss_val
+
+        # write results
+        with open(log_file, 'a', encoding='UTF8', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([_dh, nb_params, loss_train, loss_val, loss_test])
+
