@@ -1,7 +1,11 @@
 import torch
+import csv
+import itertools
 import numpy as np
 import torch.nn as nn
+import torch.nn.functional as F
 from .utils import UnitGaussianNormalizer
+from utilities import LpLoss, count_params, EarlyStopping
 
 class DenseNet(nn.Module):
     def __init__(self, layers, nonlinearity, out_nonlinearity=None, normalize=False):
@@ -31,10 +35,32 @@ class DenseNet(nn.Module):
 
         return x
 
+class ConvNet(nn.Module):
+    def __init__(self, size):
+        super().__init__()
+        self.conv1 = nn.Conv2d(1, size[0], 5)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.conv2 = nn.Conv2d(size[0], size[1], 5)
+        self.fc1 = nn.Linear(size[1] * 5 * 5, size[2])
+        self.fc2 = nn.Linear(size[2], size[3])
+        self.fc3 = nn.Linear(size[3], size[4])
+
+    def forward(self, x):
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = torch.flatten(x, 1) # flatten all dimensions except batch
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+
 class DeepONetCP(nn.Module):
-    def __init__(self, branch_layer, trunk_layer):
+    def __init__(self, branch_layer, trunk_layer, conv=False):
         super(DeepONetCP, self).__init__()
-        self.branch = DenseNet(branch_layer, nn.ReLU, nn.Tanh)
+        if conv:
+            self.branch = ConvNet(branch_layer)
+        else:
+            self.branch = DenseNet(branch_layer, nn.ReLU, nn.Tanh)
         self.trunk = DenseNet(trunk_layer, nn.ReLU, nn.Tanh)
 
     def forward(self, u0, grid):
@@ -57,21 +83,22 @@ def dataloader_deeponet_1d_xi(u, xi, ntrain=1000, ntest=200, T=51, sub_t=1, batc
         T, sub_t = (u.shape[-1]+1)//2, 5  #TODO: dim_t
 
     u_train = u[:ntrain, :dim_x, 1:T:sub_t].reshape(ntrain, -1)
-    xi_train = torch.diff(xi[:ntrain, :-1, 0:T:sub_t],dim=-1)
-    xi_train = torch.cat([torch.zeros_like(xi_train[..., 0].unsqueeze(-1)), xi_train], dim=-1).reshape(ntrain, -1)
+    xi_train = torch.diff(xi[:ntrain, :-1, 0:T:sub_t], dim=-1)
+    dim_t = xi_train.shape[-1]
+    xi_train = xi_train.reshape(ntrain, -1)
 
     u_test = u[-ntest:, :dim_x, 1:T:sub_t].reshape(ntest, -1)
     xi_test = torch.diff(xi[-ntest:, :-1, 0:T:sub_t],dim=-1)
-    xi_test = torch.cat([torch.zeros_like(xi_test[..., 0].unsqueeze(-1)), xi_test], dim=-1).reshape(ntest, -1)
+    xi_test = xi_test.reshape(ntest, -1)
 
     if normalizer:
         xi_normalizer = UnitGaussianNormalizer(xi_train)
         xi_train = xi_normalizer.encode(xi_train)
         xi_test = xi_normalizer.encode(xi_test)
 
-        u_normalizer = UnitGaussianNormalizer(u_train)
-        u_train = u_normalizer.encode(u_train)
-        u_test = u_normalizer.encode(u_test)
+        normalizer = UnitGaussianNormalizer(u_train)
+        u_train = normalizer.encode(u_train)
+        u_test = normalizer.encode(u_test)
 
     train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(xi_train, u_train), batch_size=batch_size, shuffle=True)
     test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(xi_test, u_test), batch_size=batch_size, shuffle=False)
@@ -82,7 +109,41 @@ def dataloader_deeponet_1d_xi(u, xi, ntrain=1000, ntest=200, T=51, sub_t=1, batc
     gridt = gridt.reshape(1, 1, dim_t, 1).repeat([batch_size, dim_x, 1, 1])
     grid =  torch.cat((gridx, gridt), dim=-1)[0].reshape(dim_x * dim_t, 2)
 
-    return train_loader, test_loader, u_normalizer, grid
+    return train_loader, test_loader, normalizer, grid
+
+def dataloader_deeponet_conv_1d_xi(u, xi, ntrain=1000, ntest=200, T=51, sub_t=1, batch_size=20, dim_x=128, normalizer=False, dataset=None):
+
+    if dataset=='phi41':
+        T, sub_t, dim_t = 51, 1, 50
+    elif dataset=='wave':
+        T, sub_t = (u.shape[-1]+1)//2, 5  #TODO: dim_t
+
+    u_train = u[:ntrain, :dim_x, 1:T:sub_t]
+    xi_train = torch.diff(xi[:ntrain, :-1, 0:T:sub_t], dim=-1)
+    dim_t = xi_train.shape[-1]
+
+    u_test = u[-ntest:, :dim_x, 1:T:sub_t]
+    xi_test = torch.diff(xi[-ntest:, :-1, 0:T:sub_t],dim=-1)
+
+    if normalizer:
+        xi_normalizer = UnitGaussianNormalizer(xi_train)
+        xi_train = xi_normalizer.encode(xi_train)
+        xi_test = xi_normalizer.encode(xi_test)
+
+        normalizer = UnitGaussianNormalizer(u_train)
+        u_train = normalizer.encode(u_train)
+        u_test = normalizer.encode(u_test)
+
+    train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(xi_train, u_train), batch_size=batch_size, shuffle=True)
+    test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(xi_test, u_test), batch_size=batch_size, shuffle=False)
+
+    gridx = torch.tensor(np.linspace(0, 1, dim_x), dtype=torch.float)
+    gridx = gridx.reshape(1, dim_x, 1, 1).repeat([batch_size, 1, dim_t, 1])
+    gridt = torch.tensor(np.linspace(0, 1, dim_t), dtype=torch.float)
+    gridt = gridt.reshape(1, 1, dim_t, 1).repeat([batch_size, dim_x, 1, 1])
+    grid =  torch.cat((gridx, gridt), dim=-1)[0].reshape(dim_x * dim_t, 2)
+
+    return train_loader, test_loader, normalizer, grid
 
 def dataloader_deeponet_1d_u0(u, ntrain=1000, ntest=200, T=51, sub_t=1, batch_size=20, dim_x=128, normalizer=False, dataset=None):
 
@@ -114,15 +175,40 @@ def dataloader_deeponet_1d_u0(u, ntrain=1000, ntest=200, T=51, sub_t=1, batch_si
     return train_loader, test_loader, u_normalizer, grid
 
 #===========================================================================
-# Training functionalities
+# Training and Testing functionalities
 #===========================================================================
+def eval_deeponet(model, test_dl, myloss, batch_size, device, grid, u_normalizer=None):
 
-def train_deepOnet_1d(model, train_loader, test_loader, grid, u_normalizer, device, myloss, batch_size=20, epochs=5000, learning_rate=0.001, scheduler_step=100, scheduler_gamma=0.5, print_every=20):
+    grid = grid.to(device)
+    ntest = len(test_dl.dataset)
+    test_loss = 0.
+    with torch.no_grad():
+        for u0_, u_ in test_dl:    
+            loss = 0.       
+            u0_,  u_ = u0_.to(device),  u_.to(device)
+            u_pred = model(u0_, grid)
+
+            if u_normalizer is not None:
+                u_pred = u_normalizer.decode(u_pred.cpu())
+                u_ = u_normalizer.decode(u_.cpu())
+
+            loss = myloss(u_pred.reshape(batch_size, -1), u_.reshape(batch_size, -1))
+            test_loss += loss.item()
+    print('Test Loss: {:.6f}'.format(test_loss / ntest))
+    return test_loss / ntest
+
+def train_deepOnet_1d(model, train_loader, test_loader, grid, u_normalizer, device, myloss, batch_size=20, epochs=5000, learning_rate=0.001, scheduler_step=100, scheduler_gamma=0.5, print_every=20, plateau_patience=None, plateau_terminate=None, checkpoint_file='checkpoint.pt'):
     
     grid = grid.to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=scheduler_step, gamma=scheduler_gamma)
+
+    if plateau_patience is None:
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=scheduler_step, gamma=scheduler_gamma)
+    else:
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=plateau_patience, threshold=1e-6, min_lr=1e-7)
+    if plateau_terminate is not None:
+        early_stopping = EarlyStopping(patience=plateau_terminate, verbose=False, path=checkpoint_file)
 
     ntrain = len(train_loader.dataset)
     ntest = len(test_loader.dataset)
@@ -174,8 +260,16 @@ def train_deepOnet_1d(model, train_loader, test_loader, grid, u_normalizer, devi
                     loss = myloss(u_pred.reshape(batch_size, -1), u_.reshape(batch_size, -1))
 
                     test_loss += loss.item()
-
-            scheduler.step()
+            
+            if plateau_patience is None:
+                scheduler.step()
+            else:
+                scheduler.step(test_loss/ntest)
+            if plateau_terminate is not None:
+                early_stopping(test_loss/ntest, model)
+                if early_stopping.early_stop:
+                    print("Early stopping")
+                    break
 
             if ep % print_every == 0:
         
@@ -188,3 +282,55 @@ def train_deepOnet_1d(model, train_loader, test_loader, grid, u_normalizer, devi
     except KeyboardInterrupt:
 
         return model, losses_train, losses_test
+
+
+def hyperparameter_search(train_dl, val_dl, test_dl, S, grid, u_normalizer=None, branch_width=[128,256,512], branch_depth=[2,3,4], trunk_width=[128,256,512], trunk_depth=[2,3,4], epochs=500, print_every=20, lr=0.025, plateau_patience=100, plateau_terminate=100, log_file ='log_nspde', checkpoint_file='checkpoint.pt', final_checkpoint_file='final.pt'):
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    hyperparams = list(itertools.product(branch_width, branch_depth, trunk_width, trunk_depth ))
+
+    loss = LpLoss(size_average=False)
+    
+    fieldnames = ['bw','bd','tw','td', 'nb_params', 'loss_train', 'loss_val', 'loss_test']
+    with open(log_file, 'w', encoding='UTF8', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(fieldnames)
+        
+    best_loss_val = 1000.
+
+    for (bw, bd, tw, td) in hyperparams:
+        
+        print('\n branch width:{}, branch depth:{}, trunk width:{}, trunk depth:{}'.format(bw, bd, tw, td))
+
+        branch = [S]+ bd*[bw] 
+        trunk = [2] + td*[tw]
+
+        model = DeepONetCP(branch_layer=branch,
+                    trunk_layer=trunk).to(device)
+        nb_params = count_params(model)
+        
+        print('\n The model has {} parameters'. format(nb_params))
+
+        # Train the model. The best model is checkpointed.
+        _, _, _ = train_deepOnet_1d(model, train_dl, val_dl, grid, u_normalizer, device, loss, batch_size=20, epochs=epochs, learning_rate=lr, scheduler_step=500, scheduler_gamma=0.5, print_every=print_every, plateau_patience=plateau_patience, plateau_terminate=plateau_terminate, checkpoint_file=checkpoint_file)
+
+        # load the best trained model 
+        model.load_state_dict(torch.load(checkpoint_file))
+        
+        # compute the test loss 
+        loss_test = eval_deeponet(model, test_dl, loss, 20, device, grid, u_normalizer=u_normalizer)
+        # we also recompute the validation and train loss
+        loss_train = eval_deeponet(model, train_dl, loss, 20, device, grid, u_normalizer=u_normalizer)
+        loss_val = eval_deeponet(model, val_dl, loss, 20, device, grid, u_normalizer=u_normalizer)
+
+        # if this configuration of hyperparameters is the best so far (determined wihtout using the test set), save it 
+        if loss_val < best_loss_val:
+            torch.save(model.state_dict(), final_checkpoint_file)
+            best_loss_val = loss_val
+
+        # write results
+        with open(log_file, 'a', encoding='UTF8', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([bw, bd, tw, td, nb_params, loss_train, loss_val, loss_test])
+
