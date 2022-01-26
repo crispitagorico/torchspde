@@ -378,7 +378,7 @@ def hyperparameter_search(train_dl, val_dl, test_dl, S, grid, u_normalizer=None,
         print('\n width:{}, branch depth:{},  trunk depth:{}'.format(w, bd, td))
 
         branch = [S]+ bd*[w] 
-        trunk = [2] + td*[w]
+        trunk = [grid.shape[-1]] + td*[w]
 
         model = DeepONetCP(branch_layer=branch,
                     trunk_layer=trunk).to(device)
