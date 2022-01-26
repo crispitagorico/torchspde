@@ -36,12 +36,17 @@ class DenseNet(nn.Module):
         return x
 
 class ConvNet(nn.Module):
-    def __init__(self, size):
+    def __init__(self, size, dim):
         super().__init__()
-        self.conv1 = nn.Conv2d(1, size[0], 5)
-        self.pool = nn.MaxPool2d(2, 2)
-        self.conv2 = nn.Conv2d(size[0], size[1], 5)
-        self.fc1 = nn.Linear(size[1] * 5 * 5, size[2])
+        if dim==2:
+            self.conv1 = nn.Conv2d(1, size[0], 5)
+            self.pool = nn.MaxPool2d(2, 2)
+            self.conv2 = nn.Conv2d(size[0], size[1], 5)
+        elif dim==3:
+            self.conv1 = nn.Conv3d(1, size[0], 5)
+            self.pool = nn.MaxPool3d(2, 2)
+            self.conv2 = nn.Conv3d(size[0], size[1], 5)
+        self.fc1 = nn.Linear(size[1] * 5 * 5 * 5, size[2])
         self.fc2 = nn.Linear(size[2], size[3])
         self.fc3 = nn.Linear(size[3], size[4])
 
@@ -55,10 +60,10 @@ class ConvNet(nn.Module):
         return x
 
 class DeepONetCP(nn.Module):
-    def __init__(self, branch_layer, trunk_layer, conv=False):
+    def __init__(self, branch_layer, trunk_layer, conv=0):
         super(DeepONetCP, self).__init__()
-        if conv:
-            self.branch = ConvNet(branch_layer)
+        if conv>0:
+            self.branch = ConvNet(branch_layer, conv)
         else:
             self.branch = DenseNet(branch_layer, nn.ReLU, nn.Tanh)
         self.trunk = DenseNet(trunk_layer, nn.ReLU, nn.Tanh)
@@ -175,7 +180,7 @@ def dataloader_deeponet_1d_u0(u, ntrain=1000, ntest=200, T=51, sub_t=1, batch_si
     return train_loader, test_loader, u_normalizer, grid
 
 
-def dataloader_deeponet_2d_xi(u, xi, ntrain=1000, ntest=200, T=51, sub_t=1, sub_x=4, batch_size=20, normalizer=128, dataset=None):
+def dataloader_deeponet_2d_xi(u, xi, ntrain=1000, ntest=200, T=51, sub_t=1, sub_x=4, batch_size=20, normalizer=128, dataset=None, conv=False):
 
     if dataset=='sns':
         T, sub_t, sub_x = 51, 1, 4
@@ -184,10 +189,14 @@ def dataloader_deeponet_2d_xi(u, xi, ntrain=1000, ntest=200, T=51, sub_t=1, sub_
     xi_train = xi[:ntrain, ::sub_x, ::sub_x, 1:T:sub_t]
     dim_x = xi_train.shape[1]
     dim_t = xi_train.shape[-1]
-    xi_train = xi_train.reshape(ntrain, -1)
-
+    if not conv:
+        xi_train = xi_train.reshape(ntrain, -1)
+    
     u_test = u[-ntest:, ::sub_x, ::sub_x, 1:T:sub_t].reshape(ntest, -1)
-    xi_test = xi[-ntest:, ::sub_x, ::sub_x, 1:T:sub_t].reshape(ntest, -1)
+    xi_test = xi[-ntest:, ::sub_x, ::sub_x, 1:T:sub_t]
+
+    if not conv:
+        xi_test = xi_test.reshape(ntest, -1)
 
     if normalizer:
         xi_normalizer = UnitGaussianNormalizer(xi_train)
@@ -211,18 +220,24 @@ def dataloader_deeponet_2d_xi(u, xi, ntrain=1000, ntest=200, T=51, sub_t=1, sub_
 
     return train_loader, test_loader, normalizer, grid
 
-def dataloader_deeponet_2d_u0(u, ntrain=1000, ntest=200, T=51, sub_t=1, sub_x=4, batch_size=20, normalizer=128, dataset=None):
+def dataloader_deeponet_2d_u0(u, ntrain=1000, ntest=200, T=51, sub_t=1, sub_x=4, batch_size=20, normalizer=128, dataset=None, conv=False):
 
     if dataset=='sns':
         T, sub_t, sub_x = 51, 1, 4
 
-    u0_train = u[:ntrain, ::sub_x, ::sub_x, 0].reshape(ntrain, -1)
+    u0_train = u[:ntrain, ::sub_x, ::sub_x, 0]
+
+    if not conv:
+        u0_train = u0_train.reshape(ntrain, -1)
+
     u_train = u[:ntrain, ::sub_x, ::sub_x, 1:T:sub_t]
     dim_t = u_train.shape[-1]
     dim_x = u_train.shape[1]
     u_train = u_train.reshape(ntrain, -1)
 
-    u0_test = u[-ntest:, ::sub_x, ::sub_x, 0].reshape(ntest, -1)
+    u0_test = u[-ntest:, ::sub_x, ::sub_x, 0] 
+    if not conv:
+        u0_test = u0_test.reshape(ntest, -1)
     u_test = u[-ntest:, ::sub_x, ::sub_x, 1:T:sub_t].reshape(ntest, -1)
 
     if normalizer:
