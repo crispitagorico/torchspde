@@ -111,39 +111,39 @@ def dataloader_deeponet_1d_xi(u, xi, ntrain=1000, ntest=200, T=51, sub_t=1, batc
 
     return train_loader, test_loader, normalizer, grid
 
-def dataloader_deeponet_conv_1d_xi(u, xi, ntrain=1000, ntest=200, T=51, sub_t=1, batch_size=20, dim_x=128, normalizer=False, dataset=None):
+# def dataloader_deeponet_conv_1d_xi(u, xi, ntrain=1000, ntest=200, T=51, sub_t=1, batch_size=20, dim_x=128, normalizer=False, dataset=None):
 
-    if dataset=='phi41':
-        T, sub_t, dim_t = 51, 1, 50
-    elif dataset=='wave':
-        T, sub_t = (u.shape[-1]+1)//2, 5  #TODO: dim_t
+#     if dataset=='phi41':
+#         T, sub_t, dim_t = 51, 1, 50
+#     elif dataset=='wave':
+#         T, sub_t = (u.shape[-1]+1)//2, 5  #TODO: dim_t
 
-    u_train = u[:ntrain, :dim_x, 1:T:sub_t]
-    xi_train = torch.diff(xi[:ntrain, :-1, 0:T:sub_t], dim=-1)
-    dim_t = xi_train.shape[-1]
+#     u_train = u[:ntrain, :dim_x, 1:T:sub_t]
+#     xi_train = torch.diff(xi[:ntrain, :-1, 0:T:sub_t], dim=-1)
+#     dim_t = xi_train.shape[-1]
 
-    u_test = u[-ntest:, :dim_x, 1:T:sub_t]
-    xi_test = torch.diff(xi[-ntest:, :-1, 0:T:sub_t],dim=-1)
+#     u_test = u[-ntest:, :dim_x, 1:T:sub_t]
+#     xi_test = torch.diff(xi[-ntest:, :-1, 0:T:sub_t],dim=-1)
 
-    if normalizer:
-        xi_normalizer = UnitGaussianNormalizer(xi_train)
-        xi_train = xi_normalizer.encode(xi_train)
-        xi_test = xi_normalizer.encode(xi_test)
+#     if normalizer:
+#         xi_normalizer = UnitGaussianNormalizer(xi_train)
+#         xi_train = xi_normalizer.encode(xi_train)
+#         xi_test = xi_normalizer.encode(xi_test)
 
-        normalizer = UnitGaussianNormalizer(u_train)
-        u_train = normalizer.encode(u_train)
-        u_test = normalizer.encode(u_test)
+#         normalizer = UnitGaussianNormalizer(u_train)
+#         u_train = normalizer.encode(u_train)
+#         u_test = normalizer.encode(u_test)
 
-    train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(xi_train, u_train), batch_size=batch_size, shuffle=True)
-    test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(xi_test, u_test), batch_size=batch_size, shuffle=False)
+#     train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(xi_train, u_train), batch_size=batch_size, shuffle=True)
+#     test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(xi_test, u_test), batch_size=batch_size, shuffle=False)
 
-    gridx = torch.tensor(np.linspace(0, 1, dim_x), dtype=torch.float)
-    gridx = gridx.reshape(1, dim_x, 1, 1).repeat([batch_size, 1, dim_t, 1])
-    gridt = torch.tensor(np.linspace(0, 1, dim_t), dtype=torch.float)
-    gridt = gridt.reshape(1, 1, dim_t, 1).repeat([batch_size, dim_x, 1, 1])
-    grid =  torch.cat((gridx, gridt), dim=-1)[0].reshape(dim_x * dim_t, 2)
+#     gridx = torch.tensor(np.linspace(0, 1, dim_x), dtype=torch.float)
+#     gridx = gridx.reshape(1, dim_x, 1, 1).repeat([batch_size, 1, dim_t, 1])
+#     gridt = torch.tensor(np.linspace(0, 1, dim_t), dtype=torch.float)
+#     gridt = gridt.reshape(1, 1, dim_t, 1).repeat([batch_size, dim_x, 1, 1])
+#     grid =  torch.cat((gridx, gridt), dim=-1)[0].reshape(dim_x * dim_t, 2)
 
-    return train_loader, test_loader, normalizer, grid
+#     return train_loader, test_loader, normalizer, grid
 
 def dataloader_deeponet_1d_u0(u, ntrain=1000, ntest=200, T=51, sub_t=1, batch_size=20, dim_x=128, normalizer=False, dataset=None):
 
@@ -173,6 +173,80 @@ def dataloader_deeponet_1d_u0(u, ntrain=1000, ntest=200, T=51, sub_t=1, batch_si
     grid =  torch.cat((gridx, gridt), dim=-1)[0].reshape(dim_x * dim_t, 2)
 
     return train_loader, test_loader, u_normalizer, grid
+
+
+def dataloader_deeponet_2d_xi(u, xi, ntrain=1000, ntest=200, T=51, sub_t=1, sub_x=4, batch_size=20, normalizer=128, dataset=None):
+
+    if dataset=='sns':
+        T, sub_t, sub_x = 51, 1, 4
+
+    u_train = u[:ntrain, ::sub_x, ::sub_x, 1:T:sub_t].reshape(ntrain, -1)
+    xi_train = xi[:ntrain, ::sub_x, ::sub_x, 1:T:sub_t]
+    dim_x = xi_train.shape[1]
+    dim_t = xi_train.shape[-1]
+    xi_train = xi_train.reshape(ntrain, -1)
+
+    u_test = u[-ntest:, ::sub_x, ::sub_x, 1:T:sub_t].reshape(ntest, -1)
+    xi_test = xi[-ntest:, ::sub_x, ::sub_x, 1:T:sub_t].reshape(ntest, -1)
+
+    if normalizer:
+        xi_normalizer = UnitGaussianNormalizer(xi_train)
+        xi_train = xi_normalizer.encode(xi_train)
+        xi_test = xi_normalizer.encode(xi_test)
+
+        normalizer = UnitGaussianNormalizer(u_train)
+        u_train = normalizer.encode(u_train)
+        u_test = normalizer.encode(u_test)
+
+    gridx = torch.tensor(np.linspace(0, 1, dim_x), dtype=torch.float)
+    gridx = gridx.reshape(1, dim_x, 1, 1, 1).repeat([batch_size, 1, dim_x, dim_t, 1])
+    gridy = torch.tensor(np.linspace(0, 1, dim_x), dtype=torch.float)
+    gridy = gridy.reshape(1, 1, dim_x, 1).repeat([batch_size, dim_x, 1,  dim_t, 1])
+    gridt = torch.tensor(np.linspace(0, 1, dim_t), dtype=torch.float)
+    gridt = gridt.reshape(1, 1, 1, dim_t, 1).repeat([batch_size, dim_x, dim_x, 1, 1])
+    grid =  torch.cat((gridx, gridy, gridt), dim=-1)[0].reshape(dim_x * dim_x * dim_t, 3)
+
+    train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(xi_train, u_train), batch_size=batch_size, shuffle=True)
+    test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(xi_test, u_test), batch_size=batch_size, shuffle=False)
+
+    return train_loader, test_loader, normalizer, grid
+
+def dataloader_deeponet_2d_u0(u, ntrain=1000, ntest=200, T=51, sub_t=1, sub_x=4, batch_size=20, normalizer=128, dataset=None):
+
+    if dataset=='sns':
+        T, sub_t, sub_x = 51, 1, 4
+
+    u0_train = u[:ntrain, ::sub_x, ::sub_x, 0].reshape(ntrain, -1)
+    u_train = u[:ntrain, ::sub_x, ::sub_x, 1:T:sub_t]
+    dim_t = u_train.shape[-1]
+    dim_x = u_train.shape[1]
+    u_train = u_train.reshape(ntrain, -1)
+
+    u0_test = u[-ntest:, ::sub_x, ::sub_x, 0].reshape(ntest, -1)
+    u_test = u[-ntest:, ::sub_x, ::sub_x, 1:T:sub_t].reshape(ntest, -1)
+
+    if normalizer:
+        u0_normalizer = UnitGaussianNormalizer(u0_train)
+        u0_train = u0_normalizer.encode(u0_train)
+        u0_test = u0_normalizer.encode(u0_test)
+
+        normalizer = UnitGaussianNormalizer(u_train)
+        u_train = normalizer.encode(u_train)
+        u_test = normalizer.encode(u_test)
+
+    gridx = torch.tensor(np.linspace(0, 1, dim_x), dtype=torch.float)
+    gridx = gridx.reshape(1, dim_x, 1, 1, 1).repeat([batch_size, 1, dim_x, dim_t, 1])
+    gridy = torch.tensor(np.linspace(0, 1, dim_x), dtype=torch.float)
+    gridy = gridy.reshape(1, 1, dim_x, 1).repeat([batch_size, dim_x, 1,  dim_t, 1])
+    gridt = torch.tensor(np.linspace(0, 1, dim_t), dtype=torch.float)
+    gridt = gridt.reshape(1, 1, 1, dim_t, 1).repeat([batch_size, dim_x, dim_x, 1, 1])
+    grid =  torch.cat((gridx, gridy, gridt), dim=-1)[0].reshape(dim_x * dim_x * dim_t, 3)
+
+    train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(u0_train, u_train), batch_size=batch_size, shuffle=True)
+    test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(u0_test, u_test), batch_size=batch_size, shuffle=False)
+
+    return train_loader, test_loader, normalizer, grid
+
 
 #===========================================================================
 # Training and Testing functionalities
@@ -284,27 +358,27 @@ def train_deepOnet_1d(model, train_loader, test_loader, grid, u_normalizer, devi
         return model, losses_train, losses_test
 
 
-def hyperparameter_search(train_dl, val_dl, test_dl, S, grid, u_normalizer=None, branch_width=[128,256,512], branch_depth=[2,3,4], trunk_width=[128,256,512], trunk_depth=[2,3,4], epochs=500, print_every=20, lr=0.025, plateau_patience=100, plateau_terminate=100, log_file ='log_nspde', checkpoint_file='checkpoint.pt', final_checkpoint_file='final.pt'):
+def hyperparameter_search(train_dl, val_dl, test_dl, S, grid, u_normalizer=None, width=[128,256,512], branch_depth=[2,3,4], trunk_depth=[2,3,4], epochs=500, print_every=20, lr=0.025, plateau_patience=100, plateau_terminate=100, log_file ='log_nspde', checkpoint_file='checkpoint.pt', final_checkpoint_file='final.pt'):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    hyperparams = list(itertools.product(branch_width, branch_depth, trunk_width, trunk_depth ))
+    hyperparams = list(itertools.product(width, branch_depth, trunk_depth ))
 
     loss = LpLoss(size_average=False)
     
-    fieldnames = ['bw','bd','tw','td', 'nb_params', 'loss_train', 'loss_val', 'loss_test']
+    fieldnames = ['width','bd','td', 'nb_params', 'loss_train', 'loss_val', 'loss_test']
     with open(log_file, 'w', encoding='UTF8', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(fieldnames)
         
     best_loss_val = 1000.
 
-    for (bw, bd, tw, td) in hyperparams:
+    for (w, bd, td) in hyperparams:
         
-        print('\n branch width:{}, branch depth:{}, trunk width:{}, trunk depth:{}'.format(bw, bd, tw, td))
+        print('\n width:{}, branch depth:{},  trunk depth:{}'.format(w, bd, td))
 
-        branch = [S]+ bd*[bw] 
-        trunk = [2] + td*[tw]
+        branch = [S]+ bd*[w] 
+        trunk = [2] + td*[w]
 
         model = DeepONetCP(branch_layer=branch,
                     trunk_layer=trunk).to(device)
@@ -332,5 +406,5 @@ def hyperparameter_search(train_dl, val_dl, test_dl, S, grid, u_normalizer=None,
         # write results
         with open(log_file, 'a', encoding='UTF8', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow([bw, bd, tw, td, nb_params, loss_train, loss_val, loss_test])
+            writer.writerow([w, bd, td, nb_params, loss_train, loss_val, loss_test])
 
