@@ -13,3 +13,6 @@ Stochastic partial differential equations (SPDEs) are the mathematical tool of c
 - `baselines` folder: contains the implementation of various models (NCDE, NRDE, FNO and DeepONet) to benchmark NSPDE 
 - `examples` folder: contains notebooks to train and evaluate an NSPDE (and baselines models) on different SPDEs (see `example_Ginzburg_Landau.ipynb`), and benchmark the NSPDE model (`example_hyperparameter_grid_search.ipynb`)
 
+## Access to datasets
+
+The datasets for the experiments can be generated using the notebooks in the `data` folder. Alternatively they can be donwloaded using the following [link](https://osf.io/ahn6v/?view_only=727fda8358c74ff39a0d5dcfbe2c7b91).
