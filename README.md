@@ -15,4 +15,4 @@ Stochastic partial differential equations (SPDEs) are the mathematical tool of c
 
 ## Access to datasets
 
-The datasets for the experiments can be generated using the notebooks in the `data` folder. Alternatively they can be donwloaded using the following [link](https://osf.io/ahn6v/?view_only=727fda8358c74ff39a0d5dcfbe2c7b91).
+The datasets for the experiments can be generated using the notebooks in the `data` folder. Alternatively they can be downloaded using the following [link](https://osf.io/ahn6v/?view_only=727fda8358c74ff39a0d5dcfbe2c7b91).
