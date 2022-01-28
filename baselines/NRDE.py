@@ -137,9 +137,9 @@ def dataloader_nrde_1d(u, xi, ntrain=1000, ntest=200, T=51, sub_t=1, batch_size=
         xi_train = xi_normalizer.encode(xi_train)
         xi_test = xi_normalizer.encode(xi_test)
 
-        u_normalizer = UnitGaussianNormalizer(u_train)
-        u_train = u_normalizer.encode(u_train)
-        u_test = u_normalizer.encode(u_test)
+        normalizer = UnitGaussianNormalizer(u_train)
+        u_train = normalizer.encode(u_train)
+        u_test = normalizer.encode(u_test)
 
     u0_train = u_train[:, 0, :]
     u0_test = u_test[:, 0, :]
@@ -155,7 +155,7 @@ def dataloader_nrde_1d(u, xi, ntrain=1000, ntest=200, T=51, sub_t=1, batch_size=
     train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(u0_train, xi_train, u_train), batch_size=batch_size, shuffle=True)
     test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(u0_test, xi_test, u_test), batch_size=batch_size, shuffle=False)
 
-    return train_loader, test_loader, interval, xi_train.size(-1), u_normalizer
+    return train_loader, test_loader, interval, xi_train.size(-1), normalizer
 
 #===========================================================================
 # Training and Testing functionalities (same as NCDE)

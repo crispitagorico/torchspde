@@ -157,11 +157,13 @@ def dataloader_deeponet_1d_u0(u, ntrain=1000, ntest=200, T=51, sub_t=1, batch_si
     elif dataset=='wave':
         T, sub_t = (u.shape[-1]+1)//2, 5
 
-    u0_train = u[:ntrain, :-1, 0].reshape(ntrain, -1)
-    u_train = u[:ntrain, :-1, 1:T:sub_t].reshape(ntrain, -1)
+    u0_train = u[:ntrain, :dim_x, 0].reshape(ntrain, -1)
+    u_train = u[:ntrain, :dim_x, 1:T:sub_t] 
+    dim_t = u_train.shape[-1]
+    u_train = u_train.reshape(ntrain, -1)
 
-    u0_test = u[-ntest:, :-1, 0].reshape(ntest, -1)
-    u_test = u[-ntest:, :-1, 1:T:sub_t].reshape(ntest, -1)
+    u0_test = u[-ntest:, :dim_x, 0].reshape(ntest, -1)
+    u_test = u[-ntest:, :dim_x, 1:T:sub_t].reshape(ntest, -1)
 
     if normalizer:
         u_normalizer = UnitGaussianNormalizer(u_train)
