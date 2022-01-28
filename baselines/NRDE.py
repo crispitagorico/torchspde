@@ -55,7 +55,7 @@ class CDEFunc(torch.nn.Module):
 # Next, we need to package CDEFunc up into a model that computes the integral.
 ######################
 class NeuralRDE(torch.nn.Module):
-    def __init__(self, control_channels, input_channels, hidden_channels, output_channels, interval, interpolation="linear"):
+    def __init__(self, control_channels, input_channels, hidden_channels, output_channels, interval, interpolation="linear", solver='euler'):
         super(NeuralRDE, self).__init__()
 
         self.func = CDEFunc(control_channels, hidden_channels)
@@ -63,6 +63,7 @@ class NeuralRDE(torch.nn.Module):
         self.readout = torch.nn.Linear(hidden_channels, output_channels)
         self.interpolation = interpolation
         self.interval = interval
+        self.solver = solver
 
     def forward(self, u0, coeffs):
         if self.interpolation == 'cubic':
@@ -85,7 +86,7 @@ class NeuralRDE(torch.nn.Module):
                               z0=z0,
                               func=self.func,
                               # t = X.interval,
-                              method='euler',
+                              method=self.solver,
                               adjoint = False, 
                               t=self.interval)
 
