@@ -267,28 +267,28 @@ def train_nrde_1d(model, train_loader, test_loader, u_normalizer, device, myloss
         return model, losses_train, losses_test
 
 
-def hyperparameter_search_nrde(train_dl, val_dl, test_dl, noise_size, I, dim_x, u_normalizer=None, d_h=[32], epochs=500, print_every=20, lr=0.025, plateau_patience=100, plateau_terminate=100, log_file ='log_nspde', checkpoint_file='checkpoint.pt', final_checkpoint_file='final.pt'):
+def hyperparameter_search_nrde(train_dl, val_dl, test_dl, noise_size, I, dim_x, u_normalizer=None, d_h=[32], solver=['euler', 'rk4'], epochs=500, print_every=20, lr=0.025, plateau_patience=100, plateau_terminate=100, log_file ='log_nspde', checkpoint_file='checkpoint.pt', final_checkpoint_file='final.pt'):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    hyperparams = d_h #list(itertools.product(d_h))
+    hyperparams = list(itertools.product(d_h, solver))
 
     loss = LpLoss(size_average=False)
     
-    fieldnames = ['d_h', 'nb_params', 'loss_train', 'loss_val', 'loss_test']
+    fieldnames = ['d_h', 'nb_params', 'solver', 'loss_train', 'loss_val', 'loss_test']
     with open(log_file, 'w', encoding='UTF8', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(fieldnames)
         
     best_loss_val = 1000.
 
-    for _dh in hyperparams:
+    for (_dh, _solver) in hyperparams:
         
         print('\n dh:{}'.format(_dh))
         
         model = NeuralRDE(control_channels=noise_size, input_channels=dim_x, 
                   hidden_channels=_dh, output_channels=dim_x, interval=I, 
-                  interpolation='linear').cuda()
+                  interpolation='linear', solver=_solver).cuda()
 
         nb_params = count_params(model)
         
@@ -315,4 +315,4 @@ def hyperparameter_search_nrde(train_dl, val_dl, test_dl, noise_size, I, dim_x, 
         # write results
         with open(log_file, 'a', encoding='UTF8', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow([_dh, nb_params, loss_train, loss_val, loss_test])
+            writer.writerow([_dh, nb_params, _solver, loss_train, loss_val, loss_test])

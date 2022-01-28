@@ -78,7 +78,7 @@ class CDEFunc(torch.nn.Module):
 # Next, we need to package CDEFunc up into a model that computes the integral.
 ######################
 class NeuralCDE(torch.nn.Module):
-    def __init__(self, data_size, noise_size, hidden_channels, output_channels, interpolation="linear"):
+    def __init__(self, data_size, noise_size, hidden_channels, output_channels, interpolation="linear", solver='euler'):
         super(NeuralCDE, self).__init__()
 
         self.func = CDEFunc(noise_size, hidden_channels)
@@ -88,6 +88,7 @@ class NeuralCDE(torch.nn.Module):
         readout = [torch.nn.Linear(hidden_channels, 128), torch.nn.ReLU(), torch.nn.Linear(128, output_channels)]
         self._readout = torch.nn.Sequential(*readout)
         self.interpolation = interpolation
+        self.solver = solver
 
     def forward(self, u0, coeffs):
         if self.interpolation == 'cubic':
@@ -113,7 +114,7 @@ class NeuralCDE(torch.nn.Module):
                               z0=z0,
                               func=self.func,
                               # t = X.interval,
-                              method='euler',
+                              method=self.solver,
                               t=X._t)
 
         ######################
@@ -363,27 +364,27 @@ def train_ncdeinf_1d(model, train_loader, test_loader, device, myloss, batch_siz
 
         return model, losses_train, losses_test
 
-def hyperparameter_search_ncdefno_1d(train_dl, val_dl, test_dl, d_h=[32], epochs=500, print_every=20, lr=0.025, plateau_patience=100, plateau_terminate=100, log_file ='log_nspde', checkpoint_file='checkpoint.pt', final_checkpoint_file='final.pt'):
+def hyperparameter_search_ncdefno_1d(train_dl, val_dl, test_dl, d_h=[32], solver=['euler', 'rk4'], epochs=500, print_every=20, lr=0.025, plateau_patience=100, plateau_terminate=100, log_file ='log_nspde', checkpoint_file='checkpoint.pt', final_checkpoint_file='final.pt'):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    hyperparams = d_h #list(itertools.product(d_h))
+    hyperparams = list(itertools.product(d_h, solver))
 
     loss = LpLoss(size_average=False)
     
-    fieldnames = ['d_h', 'nb_params', 'loss_train', 'loss_val', 'loss_test']
+    fieldnames = ['d_h', 'nb_params', 'solver', 'loss_train', 'loss_val', 'loss_test']
     with open(log_file, 'w', encoding='UTF8', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(fieldnames)
         
     best_loss_val = 1000.
 
-    for _dh in hyperparams:
+    for (_dh, _solver) in hyperparams:
         
         print('\n dh:{}'.format(_dh))
 
         model = NeuralCDE(data_size=1, noise_size=1, hidden_channels=_dh, output_channels=1, 
-                  interpolation='linear').cuda()
+                  interpolation='linear', solver=_solver).cuda()
 
         nb_params = count_params(model)
         
@@ -410,4 +411,4 @@ def hyperparameter_search_ncdefno_1d(train_dl, val_dl, test_dl, d_h=[32], epochs
         # write results
         with open(log_file, 'a', encoding='UTF8', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow([_dh, nb_params, loss_train, loss_val, loss_test])
+            writer.writerow([_dh, nb_params, _solver, loss_train, loss_val, loss_test])
