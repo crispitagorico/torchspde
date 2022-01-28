@@ -19,7 +19,7 @@ def compl_mat_vec_mul_1d(A, z):
 
     return torch.stack([
         op(A[0], z[:, 0]) - op(A[1], z[:, 1]),
-        op(A[1], z[:, 0]) -op(A[0], z[:, 1])
+        op(A[1], z[:, 0]) + op(A[0], z[:, 1])
     ], dim=1)
 
 def compl_mat_vec_mul_2d(A, z):
@@ -31,7 +31,7 @@ def compl_mat_vec_mul_2d(A, z):
 
     return torch.stack([
         op(A[0], z[:, 0]) - op(A[1], z[:, 1]),
-        op(A[1], z[:, 0]) -op(A[0], z[:, 1])
+        op(A[1], z[:, 0]) + op(A[0], z[:, 1])
     ], dim=1)
 
 
@@ -90,12 +90,12 @@ class ControlledODE(torch.nn.Module):
 
         # 1) FFT^-1
         if self.flag1d:
-            dim_x = xi.size(2)
+            dim_x = xi.size(1)
             v = torch.fft.ifftshift(v, dim=[2]) # centering modes
             v = torch.view_as_complex(v.permute(0,2,3,1).contiguous()) # (batch, modes1, hidden_channels) -- complex
             z = torch.fft.ifftn(v, dim=[1], s=dim_x).real.permute(0,2,1) # FFT^-1(v) (batch, hidden_channels, dim_x) -- real
         else:
-            dim_x, dim_y = xi.size(2), xi.size(3)
+            dim_x, dim_y = xi.size(1), xi.size(2)
             v = torch.fft.ifftshift(v, dim=[2, 3]) # centering modes
             v = torch.view_as_complex(v.permute(0,2,3,4,1).contiguous()) # (batch, modes1, modes2, hidden_channels) -- complex
             z = torch.fft.ifftn(v, dim=[1, 2], s=[dim_x, dim_y]).real.permute(0,3,1,2) # FFT^-1(v) (batch, hidden_channels, dim_x, dim_y) -- real
@@ -122,13 +122,13 @@ class ControlledODE(torch.nn.Module):
             v = torch.fft.fftshift(v, dim=[2]) # centering modes
             v = torch.stack([v.real, v.imag], dim=1) # (batch, 2, hidden_channels, dim_x) 
             v = v.permute(0,1,3,2)  # (batch, 2, dim_x, hidden_channels) 
-            out_ft[:, :, :, freqs[0][0]:freqs[0][1] ]  = v[:, :, :, freqs[0][0]:freqs[0][1] ] 
+            out_ft[:, :, freqs[0][0]:freqs[0][1] ]  = v[:, :, freqs[0][0]:freqs[0][1] ] 
         else:
             v = torch.fft.fftn(H, dim=[2,3]) # FFT(H) (batch, hidden_channels, dim_x, dim_y) -- complex 
             v = torch.fft.fftshift(v, dim=[2,3]) # centering modes
             v = torch.stack([v.real, v.imag], dim=1) # (batch, 2, hidden_channels, dim_x, dim_y) 
             v = v.permute(0,1,3,4,2)  # (batch, 2, dim_x, dim_y, hidden_channels) 
-            out_ft[:, :, :, freqs[0][0]:freqs[0][1], freqs[1][0]:freqs[1][1] ]  = v[:, :, :, freqs[0][0]:freqs[0][1], freqs[1][0]:freqs[1][1] ] 
+            out_ft[:, :, freqs[0][0]:freqs[0][1], freqs[1][0]:freqs[1][1] ]  = v[:, :, freqs[0][0]:freqs[0][1], freqs[1][0]:freqs[1][1] ] 
 
         # We form the vector field A + FFT o H o FFT^-1
         sol = Av + out_ft
@@ -189,7 +189,7 @@ class DiffeqSolver(nn.Module):
             xi = xi.permute(0,2,3,4,1) # (batch, dim_x, dim_y, dim_t, hidden_channels)
 
         # hack so that xi's shape is compatible with that of v0
-        xi = torch.stack([xi, xi], dim=1) # (batch,2, dim_x, possibly dim_y, dim_t, hidden_channels)
+        xi = torch.stack([xi, torch.zeros_like(xi)], dim=1) # (batch,2, dim_x, possibly dim_y, dim_t, hidden_channels)
 
         # interpolate xi so that it can be queried at any time t 
         xi = torchcde.linear_interpolation_coeffs(xi)
