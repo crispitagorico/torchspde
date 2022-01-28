@@ -375,7 +375,7 @@ def train_deepOnet_1d(model, train_loader, test_loader, grid, u_normalizer, devi
         return model, losses_train, losses_test
 
 
-def hyperparameter_search(train_dl, val_dl, test_dl, S, grid, u_normalizer=None, width=[128,256,512], branch_depth=[2,3,4], trunk_depth=[2,3,4], epochs=500, print_every=20, lr=0.025, plateau_patience=100, plateau_terminate=100, log_file ='log_nspde', checkpoint_file='checkpoint.pt', final_checkpoint_file='final.pt'):
+def hyperparameter_search_deeponet(train_dl, val_dl, test_dl, S, grid, u_normalizer=None, width=[128,256,512], branch_depth=[2,3,4], trunk_depth=[2,3,4], epochs=500, print_every=20, lr=0.025, plateau_patience=100, plateau_terminate=100, log_file ='log_nspde', checkpoint_file='checkpoint.pt', final_checkpoint_file='final.pt'):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
