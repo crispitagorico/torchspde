@@ -5,21 +5,10 @@ Stochastic partial differential equations (SPDEs) are the mathematical tool of c
 
 ---
 
+## Structure of the repository
 
-To run the specific examples navigate to folder ...
+- `data` folder: contains notebooks to generate various datasets (stochastic Ginzburg Landau, KdV, Navier-Stokes) using numerical solvers for SPDEs (finite difference and spectral Galerkin methods)
+- `torchspde` folder: contains the implementation of the Neural SPDE model
+- `baselines` folder: contains the implementation of various models (NCDE, NRDE, FNO and DeepONet) to benchmark the NSPDE model 
+- `examples` folder: contains notebooks to train and evaluate an NSPDE (and baselines models) on different SPDEs, and benchmark the NSPDE model
 
-
-
-
-<!-- 
-
-```bibtex
-@article{salvi2020computing,
-  title={The Signature Kernel is the solution of a Goursat PDE},
-  author={Salvi, Cristopher and Cass, Thomas and Foster, James and Lyons, Terry and Yang, Weixin},
-  journal={arXiv preprint arXiv:2006.14794},
-  year={2020}
-}
-```
-
--->
