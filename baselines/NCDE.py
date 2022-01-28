@@ -295,7 +295,7 @@ def train_ncde(model, train_loader, test_loader, u_normalizer, device, myloss, b
 
         return model, losses_train, losses_test
 
-def hyperparameter_search(train_dl, val_dl, test_dl, dim_x, u_normalizer=None, d_h=[32], epochs=500, print_every=20, lr=0.025, plateau_patience=100, plateau_terminate=100, log_file ='log_nspde', checkpoint_file='checkpoint.pt', final_checkpoint_file='final.pt'):
+def hyperparameter_search_ncde(train_dl, val_dl, test_dl, dim_x, u_normalizer=None, d_h=[32], epochs=500, print_every=20, lr=0.025, plateau_patience=100, plateau_terminate=100, log_file ='log_nspde', checkpoint_file='checkpoint.pt', final_checkpoint_file='final.pt'):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
