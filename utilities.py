@@ -52,36 +52,36 @@ def dataloader_nspde_1d(u, xi=None, ntrain=1000, ntest=200, T=51, sub_t=1, batch
 
     return train_loader, test_loader
 
-def dataloader_nspde_diffeq_1d(u, xi=None, ntrain=1000, ntest=200, T=51, sub_t=1, batch_size=20, dim_x=128, dataset=None):
+# def dataloader_nspde_diffeq_1d(u, xi=None, ntrain=1000, ntest=200, T=51, sub_t=1, batch_size=20, dim_x=128, dataset=None):
 
-    if xi is None:
-        print('There is no known forcing')
+#     if xi is None:
+#         print('There is no known forcing')
 
-    if dataset=='phi41':
-        T, sub_t = 51, 1
-    elif dataset=='wave':
-        T, sub_t = (u.shape[-1]+1)//2, 5
+#     if dataset=='phi41':
+#         T, sub_t = 51, 1
+#     elif dataset=='wave':
+#         T, sub_t = (u.shape[-1]+1)//2, 5
 
-    u0_train = u[:ntrain, :dim_x, 0].unsqueeze(1)
-    u_train = u[:ntrain, :dim_x, :T:sub_t]
+#     u0_train = u[:ntrain, :dim_x, 0].unsqueeze(1)
+#     u_train = u[:ntrain, :dim_x, :T:sub_t]
 
-    if xi is not None:
-        xi_train = xi[:ntrain, :dim_x, 0:T:sub_t].unsqueeze(1)
-    else:
-        xi_train = torch.zeros_like(u_train)
+#     if xi is not None:
+#         xi_train = xi[:ntrain, :dim_x, 0:T:sub_t].unsqueeze(1)
+#     else:
+#         xi_train = torch.zeros_like(u_train)
 
-    u0_test = u[-ntest:, :dim_x, 0].unsqueeze(1)
-    u_test = u[-ntest:, :dim_x, 0:T:sub_t]
+#     u0_test = u[-ntest:, :dim_x, 0].unsqueeze(1)
+#     u_test = u[-ntest:, :dim_x, 0:T:sub_t]
 
-    if xi is not None:
-        xi_test = xi[-ntest:, :dim_x, 0:T:sub_t].unsqueeze(1)
-    else:
-        xi_test = torch.zeros_like(u_test)
+#     if xi is not None:
+#         xi_test = xi[-ntest:, :dim_x, 0:T:sub_t].unsqueeze(1)
+#     else:
+#         xi_test = torch.zeros_like(u_test)
 
-    train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(u0_train, xi_train, u_train), batch_size=batch_size, shuffle=True)
-    test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(u0_test, xi_test, u_test), batch_size=batch_size, shuffle=False)
+#     train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(u0_train, xi_train, u_train), batch_size=batch_size, shuffle=True)
+#     test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(u0_test, xi_test, u_test), batch_size=batch_size, shuffle=False)
 
-    return train_loader, test_loader
+#     return train_loader, test_loader
 
 
 def dataloader_nspde_2d(u, xi=None, ntrain=1000, ntest=200, T=51, sub_t=1, sub_x=4, batch_size=20, dataset=None):
@@ -235,7 +235,7 @@ def train_nspde(model, train_loader, test_loader, device, myloss, batch_size=20,
 
 
 
-def hyperparameter_search(train_dl, val_dl, test_dl, d_h=[32], iter=[1,2,3], modes1=[32,64], modes2=[32,64], epochs=500, print_every=20, lr=0.025, plateau_patience=100, plateau_terminate=100, log_file ='log_nspde', checkpoint_file='checkpoint.pt', final_checkpoint_file='final.pt'):
+def hyperparameter_search_nspde(train_dl, val_dl, test_dl, d_h=[32], iter=[1,2,3], modes1=[32,64], modes2=[32,64], epochs=500, print_every=20, lr=0.025, plateau_patience=100, plateau_terminate=100, log_file ='log_nspde', checkpoint_file='checkpoint.pt', final_checkpoint_file='final.pt'):
 
     hyperparams = list(itertools.product(d_h, iter, modes1, modes2))
 
@@ -282,9 +282,6 @@ def hyperparameter_search(train_dl, val_dl, test_dl, d_h=[32], iter=[1,2,3], mod
         with open(log_file, 'a', encoding='UTF8', newline='') as f:
             writer = csv.writer(f)
             writer.writerow([_dh, _iter, _modes1, _modes2, nb_params, loss_train, loss_val, loss_test])
-
-
-
 
 class EarlyStopping:
     """Early stops the training if validation loss doesn't improve after a given patience."""
@@ -606,10 +603,9 @@ def count_params(model):
     return c
 
 
-###################
+#===========================================================================
 # The following utilities are for memory usage profiling
-#
-###################
+#===========================================================================
 def get_gpu_mem(synchronize=True, empty_cache=True):
     return torch.cuda.memory_allocated(), torch.cuda.memory_cached()
 
@@ -699,10 +695,9 @@ def plot_mem(df, exps=None, normalize_call_idx=True, normalize_mem_all=True, fil
 
 
 
-###################
+#===========================================================================
 # The following utility returns the maximum memory usage
-#
-###################
+#===========================================================================
 
 def get_memory(device, reset=False, in_mb=True):
     if device is None:
