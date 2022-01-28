@@ -9,7 +9,7 @@ Stochastic partial differential equations (SPDEs) are the mathematical tool of c
 ## Structure of the repository
 
 - `data` folder: contains notebooks to generate various datasets (stochastic Ginzburg Landau, KdV, Navier-Stokes) using numerical solvers for SPDEs (finite difference and spectral Galerkin methods)
-- `torchspde` folder: contains the implementation of the Neural SPDE model
-- `baselines` folder: contains the implementation of various models (NCDE, NRDE, FNO and DeepONet) to benchmark the NSPDE model 
-- `examples` folder: contains notebooks to train and evaluate an NSPDE (and baselines models) on different SPDEs (see the notebook `example_Ginzburg_Landau.ipynb`), and benchmark the NSPDE model (see the notebook `example_hyperparameter_grid_search.ipynb`)
+- `torchspde` folder: contains the implementation of the Neural SPDE (NSPDE) model
+- `baselines` folder: contains the implementation of various models (NCDE, NRDE, FNO and DeepONet) to benchmark NSPDE 
+- `examples` folder: contains notebooks to train and evaluate an NSPDE (and baselines models) on different SPDEs (see `example_Ginzburg_Landau.ipynb`), and benchmark the NSPDE model (`example_hyperparameter_grid_search.ipynb`)
 
