@@ -1,5 +1,4 @@
 <h1 align='center'>Neural Stochastic PDEs</h1>
-<h2 align='center'>Resolution-Invariant Learning of Continuous Spatiotemporal Dynamics</h2>
 
 [Link to NeurIPS22 paper](https://arxiv.org/abs/2110.10249)
 
